@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Spotter" />
-  <title>Spotter v0 — Indian Tree</title>
+  <title>Spotter</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="icon" href="icon-192.png" />
@@ -21,7 +21,7 @@
         <div class="mark">S</div>
         <div>
           <h1>Spotter</h1>
-          <p id="siteLabel">Indian Tree · Arvada</p>
+          <p id="siteLabel">Any driving range</p>
         </div>
       </div>
       <div class="chip" id="modeChip">v0 · Setup</div>
@@ -32,9 +32,17 @@
   </div>
 
   <section class="screen" id="setupScreen">
-    <div class="tiny">Spotter v0.4.1 · field site</div>
-    <h2>Indian Tree Golf Club</h2>
-    <p class="lede">7555 Wadsworth Blvd, Arvada. One phone, two to four players. Each player hits their full set, then you hand the phone to the spotter for the next player.</p>
+    <div class="tiny">Spotter v0.5.10</div>
+    <h2>Range games</h2>
+
+    <div class="field field-game">
+      <label for="gameType">Game</label>
+      <select id="gameType">
+        <option value="closest" selected>Closest to the Pin</option>
+      </select>
+    </div>
+
+    <ol class="steps" id="gameSteps"></ol>
 
     <div class="row">
       <div class="field">
@@ -64,37 +72,11 @@
       <div class="field" id="wrap4"><label for="name4">Player 4</label><input id="name4" type="text" value="Player 4" autocomplete="off" /></div>
     </div>
 
-    <div class="row" style="margin-top:10px">
-      <div class="field">
-        <label for="bayPreset">Your bay</label>
-        <select id="bayPreset">
-          <option value="center">Center of tee line</option>
-          <option value="right">Right / parking side</option>
-          <option value="left">Left / far side</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="pinPreset">Start pin</label>
-        <select id="pinPreset">
-          <option value="50">50 yd target</option>
-          <option value="100">100 yd target</option>
-          <option value="125">125 yd target</option>
-          <option value="150" selected>150 yd target</option>
-          <option value="175">175 yd target</option>
-          <option value="200">200 yd target</option>
-        </select>
-      </div>
-    </div>
-
-    <label class="check">
-      <input type="checkbox" id="usePreset" checked />
-      Use Indian Tree preset, then drag the dots if they are off
-    </label>
     <label class="check">
       <input type="checkbox" id="useSavedBay" />
-      Use last saved tee and pin from this phone
+      Skip setup — use last tee and pin saved on this phone
     </label>
-    <p class="warn">Preset is a starting guess. 24 tees span the line — pick your bay, then drag Tee and Pin. Do not walk the landing area.</p>
+    <p class="warn">Stay in the hitting bay. Mark the landing from the tee line. Do not walk down the range.</p>
     <div style="margin-top:16px">
       <button class="btn wide" id="startBtn">Open the range</button>
     </div>
