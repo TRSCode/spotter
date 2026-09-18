@@ -1,0 +1,10 @@
+{
+  "name": "spotter",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Spotter v0 — closest-to-the-pin at Indian Tree Golf Club, Arvada.",
+  "scripts": {
+    "start": "npx --yes serve -l 8765 .",
+    "start:py": "python -m http.server 8765"
+  }
+}

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#12261a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Spotter" />
+  <title>Spotter v0 — Indian Tree</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">S</div>
+        <div>
+          <h1>Spotter</h1>
+          <p id="siteLabel">Indian Tree · Arvada</p>
+        </div>
+      </div>
+      <div class="chip" id="modeChip">v0 · Setup</div>
+    </header>
+
+    <div id="map"></div>
+    <footer class="dock" id="dock"></footer>
+  </div>
+
+  <section class="screen" id="setupScreen">
+    <div class="tiny">Spotter v0.4.1 · field site</div>
+    <h2>Indian Tree Golf Club</h2>
+    <p class="lede">7555 Wadsworth Blvd, Arvada. One phone, two to four players. Each player hits their full set, then you hand the phone to the spotter for the next player.</p>
+
+    <div class="row">
+      <div class="field">
+        <label for="playerCount">Players</label>
+        <select id="playerCount">
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="shots">Shots each</label>
+        <select id="shots">
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5" selected>5</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div class="field"><label for="name1">Player 1</label><input id="name1" type="text" value="Player 1" autocomplete="off" /></div>
+      <div class="field"><label for="name2">Player 2</label><input id="name2" type="text" value="Player 2" autocomplete="off" /></div>
+    </div>
+    <div class="row" id="extraNames" style="margin-top:10px">
+      <div class="field" id="wrap3"><label for="name3">Player 3</label><input id="name3" type="text" value="Player 3" autocomplete="off" /></div>
+      <div class="field" id="wrap4"><label for="name4">Player 4</label><input id="name4" type="text" value="Player 4" autocomplete="off" /></div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div class="field">
+        <label for="bayPreset">Your bay</label>
+        <select id="bayPreset">
+          <option value="center">Center of tee line</option>
+          <option value="right">Right / parking side</option>
+          <option value="left">Left / far side</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="pinPreset">Start pin</label>
+        <select id="pinPreset">
+          <option value="50">50 yd target</option>
+          <option value="100">100 yd target</option>
+          <option value="125">125 yd target</option>
+          <option value="150" selected>150 yd target</option>
+          <option value="175">175 yd target</option>
+          <option value="200">200 yd target</option>
+        </select>
+      </div>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" id="usePreset" checked />
+      Use Indian Tree preset, then drag the dots if they are off
+    </label>
+    <label class="check">
+      <input type="checkbox" id="useSavedBay" />
+      Use last saved tee and pin from this phone
+    </label>
+    <p class="warn">Preset is a starting guess. 24 tees span the line — pick your bay, then drag Tee and Pin. Do not walk the landing area.</p>
+    <div style="margin-top:16px">
+      <button class="btn wide" id="startBtn">Open the range</button>
+    </div>
+  </section>
+
+  <section class="screen hidden" id="scoreScreen"></section>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
