@@ -1,10 +1,10 @@
 {
   "name": "spotter",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Spotter — closest-to-the-pin at any driving range.",
   "scripts": {
     "start": "npx --yes serve -l 8765 .",
-    "start:py": "python -m http.server 8765"
+    "start:py": "python -m http.server 8765 --bind 0.0.0.0"
   }
 }

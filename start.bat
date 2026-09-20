@@ -1,7 +1,8 @@
 @echo off
 cd /d "%~dp0"
-echo Spotter v0 - http://localhost:8765
-echo On your phone, use this PC's Wi-Fi IP and port 8765.
+echo Spotter v0.6 - http://localhost:8765
+echo On the phone use http://THIS-PC-LAN-IP:8765
+echo If the phone cannot connect, allow port 8765 in Windows Firewall.
 echo.
 where node >nul 2>&1
 if %errorlevel%==0 (
@@ -10,12 +11,12 @@ if %errorlevel%==0 (
 )
 where python >nul 2>&1
 if %errorlevel%==0 (
-  python -m http.server 8765
+  python -m http.server 8765 --bind 0.0.0.0
   goto :eof
 )
 where py >nul 2>&1
 if %errorlevel%==0 (
-  py -m http.server 8765
+  py -m http.server 8765 --bind 0.0.0.0
   goto :eof
 )
 echo Node and Python were not found.

@@ -2,8 +2,8 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 $port = 8765
-Write-Host "Spotter v0  http://localhost:$port"
-Write-Host "Phone: same Wi-Fi, this PC IPv4, port $port"
+Write-Host "Spotter v0.6  http://localhost:$port"
+Write-Host "LAN: http://<this-PC-IPv4>:$port  (server binds 0.0.0.0)"
 Write-Host ""
 
 function Have($name) {
@@ -17,7 +17,7 @@ if (Have "node") {
 
 foreach ($py in @("python", "py", "python3")) {
   if (Have $py) {
-    & $py -m http.server $port
+    & $py -m http.server $port --bind 0.0.0.0
     exit $LASTEXITCODE
   }
 }
@@ -28,7 +28,7 @@ Write-Host ""
 
 $root = (Get-Location).Path
 $listener = [System.Net.HttpListener]::new()
-$listener.Prefixes.Add("http://localhost:$port/")
+$listener.Prefixes.Add("http://+:$port/")
 try {
   $listener.Start()
 } catch {

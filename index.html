@@ -32,7 +32,7 @@
   </div>
 
   <section class="screen" id="setupScreen">
-    <div class="tiny">Spotter v0.5.10</div>
+    <div class="tiny">Spotter v0.6.2</div>
     <h2>Range games</h2>
 
     <div class="field field-game">
@@ -42,7 +42,13 @@
       </select>
     </div>
 
-    <ol class="steps" id="gameSteps"></ol>
+    <ol class="steps" id="gameSteps">
+      <li><strong>First:</strong> select the number of players.</li>
+      <li><strong>Second:</strong> select how many rounds for this session (default of 3).</li>
+      <li><strong>Third:</strong> select how many balls each player gets.</li>
+      <li><strong>Fourth:</strong> update player names as needed.</li>
+      <li><strong>Fifth:</strong> open the range, mark TEE (where you stand), then PIN (the target).</li>
+    </ol>
 
     <div class="row">
       <div class="field">
@@ -53,6 +59,19 @@
           <option value="4">4</option>
         </select>
       </div>
+      <div class="field">
+        <label for="rounds">Rounds</label>
+        <select id="rounds">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
       <div class="field">
         <label for="shots">Shots each</label>
         <select id="shots">

@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.5.10";
+  const VERSION = "0.6.2";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -10,9 +10,10 @@
       label: "Closest to the Pin",
       steps: [
         ["First", "select the number of players."],
-        ["Second", "select how many balls each player gets."],
-        ["Third", "open the range, mark TEE (where you stand), then PIN (the target)."],
-        ["Fourth", "update player names as needed."]
+        ["Second", "select how many rounds for this session (default of 3)."],
+        ["Third", "select how many balls each player gets."],
+        ["Fourth", "update player names as needed."],
+        ["Fifth", "open the range, mark TEE (where you stand), then PIN (the target)."]
       ]
     }
   };
@@ -42,6 +43,10 @@
     names: ["Player 1", "Player 2"],
     game: "closest",
     shotsEach: 5,
+    roundsPlanned: 3,
+    handoffTo: null,
+    placeName: "",
+    usingReference: false,
     tee: null,
     pin: null,
     shots: [],
@@ -76,7 +81,7 @@
       if (!raw) return;
       const p = JSON.parse(raw);
       if (p.count) els.playerCount.value = String(p.count);
-      ["name1", "name2", "name3", "name4", "shots", "gameType"].forEach((id) => {
+      ["name1", "name2", "name3", "name4", "shots", "gameType", "rounds"].forEach((id) => {
         if (p[id] != null && document.getElementById(id)) document.getElementById(id).value = p[id];
       });
       if (p.useSavedBay && p.savedTee && p.savedPin) {
@@ -116,6 +121,7 @@
         name3: document.getElementById("name3").value.trim(),
         name4: document.getElementById("name4").value.trim(),
         shots: document.getElementById("shots").value,
+        rounds: document.getElementById("rounds") ? document.getElementById("rounds").value : "3",
         gameType: document.getElementById("gameType").value,
         useSavedBay: document.getElementById("useSavedBay").checked
       })
@@ -195,6 +201,14 @@
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       { maxZoom: 19, attribution: "Tiles © Esri" }
     ).addTo(map);
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, opacity: 0.95 }
+    ).addTo(map);
+    L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, opacity: 0.7 }
+    ).addTo(map);
 
     shotLayer = L.layerGroup().addTo(map);
     ringLayer = L.layerGroup().addTo(map);
@@ -213,7 +227,13 @@
     });
   }
 
-  function placeTee(latlng, skipDock) {
+  function setPlaceLabel(name) {
+    state.placeName = name || "";
+    const el = document.getElementById("siteLabel");
+    if (el) el.textContent = name || "Any driving range";
+  }
+
+  function placeTee(latlng, skipDock, opts) {
     state.tee = latlng;
     if (teeMarker) map.removeLayer(teeMarker);
     teeMarker = L.marker(latlng, { icon: divIcon("tee"), draggable: true, zIndexOffset: 600 })
@@ -223,9 +243,66 @@
       const p = teeMarker.getLatLng();
       state.tee = [p.lat, p.lng];
       saveGeom();
+      if (!state.usingReference) lookupPlace(state.tee);
       renderDock();
     });
+    if (!opts || !opts.skipLookup) lookupPlace(latlng);
     if (!skipDock) renderDock();
+  }
+
+  async function lookupPlace(latlng) {
+    if (!latlng) return;
+    const [lat, lon] = latlng;
+    try {
+      const q = `[out:json][timeout:8];(
+        nwr["golf"="driving_range"](around:900,${lat},${lon});
+        nwr["leisure"="golf_course"](around:900,${lat},${lon});
+      );out center 12;`;
+      const over = await fetch("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        body: `data=${encodeURIComponent(q)}`
+      });
+      if (over.ok) {
+        const data = await over.json();
+        const named = (data.elements || [])
+          .map((el) => {
+            const c = el.center || { lat: el.lat, lon: el.lon };
+            if (c.lat == null) return null;
+            return {
+              name: (el.tags && (el.tags.name || el.tags["name:en"])) || "",
+              kind: el.tags && el.tags.golf === "driving_range" ? 0 : 1,
+              d: haversineMeters(latlng, [c.lat, c.lon])
+            };
+          })
+          .filter((x) => x && x.name)
+          .sort((a, b) => a.kind - b.kind || a.d - b.d);
+        if (named.length) {
+          setPlaceLabel(`Near ${named[0].name}`);
+          renderDock();
+          return;
+        }
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    try {
+      const rev = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=16`,
+        { headers: { Accept: "application/json" } }
+      );
+      if (!rev.ok) return;
+      const geo = await rev.json();
+      const city =
+        (geo.address && (geo.address.city || geo.address.town || geo.address.village || geo.address.suburb)) || "";
+      const road = (geo.address && geo.address.road) || "";
+      const label = [road, city].filter(Boolean).join(" · ") || geo.name || geo.display_name;
+      if (label) setPlaceLabel(label.split(",")[0] + (city && !label.includes(city) ? ` · ${city}` : city ? "" : ""));
+      if (city && !state.placeName) setPlaceLabel(city);
+      if (!state.placeName && label) setPlaceLabel(String(label).split(",")[0]);
+      renderDock();
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   function placePin(latlng, skipDock) {
@@ -327,6 +404,7 @@
   function onMapClick(e) {
     const latlng = [e.latlng.lat, e.latlng.lng];
     if (state.phase === "calibrate") {
+      state.usingReference = false;
       placeTee(latlng);
       return;
     }
@@ -334,10 +412,14 @@
       placePin(latlng);
       return;
     }
-    if (state.phase === "play") markShot(latlng, false);
+    if (state.phase === "play") {
+      if (state.handoffTo != null) return;
+      markShot(latlng, false);
+    }
   }
 
   function markShot(latlng, missed) {
+    if (state.handoffTo != null) return;
     const player = currentPlayer();
     if (player == null || !state.pin) return;
     const toPin = missed ? null : yardsBetween(latlng, state.pin);
@@ -352,8 +434,12 @@
     });
     state.lastYards = toPin;
     redrawShots();
-    if (currentPlayer() == null) finishGame();
-    else renderDock();
+    const next = currentPlayer();
+    if (next == null) finishGame();
+    else if (next !== player) {
+      state.handoffTo = next;
+      renderDock();
+    } else renderDock();
   }
 
   function undoShot() {
@@ -392,6 +478,7 @@
         .filter((s) => s.player === i && !s.missed && s.toPin != null)
         .forEach((s) => state.sessionYards[n].push(s.toPin));
     });
+    state.handoffTo = null;
     state.games.push({
       at: Date.now(),
       names: state.names.slice(),
@@ -399,7 +486,8 @@
       bests: result.bests,
       avgWinners: avg.names,
       avgs: avg.avgs,
-      shotCount: state.shots.length
+      shotCount: state.shots.length,
+      place: state.placeName || ""
     });
     saveGeom();
     state.phase = "score";
@@ -495,7 +583,7 @@
       .join("");
 
     els.score.innerHTML = `
-      <div class="tiny">Closest to the pin · v${VERSION} · game ${state.games.length}</div>
+      <div class="tiny">Closest to the pin · v${VERSION} · round ${state.games.length} of ${state.roundsPlanned}${state.placeName ? ` · ${state.placeName}` : ""}</div>
       <div class="winner">
         <div class="tiny">This game · ${selectedGame().label}</div>
         <h2 style="margin:4px 0 6px">${headline}</h2>
@@ -512,9 +600,15 @@
       <div class="list">${shotsHtml || "<p class='lede'>No shots recorded.</p>"}</div>
       <div class="tiny">All games this visit</div>
       <div class="list">${gamesHtml}</div>
-      <button class="btn wide" id="replayBtn">Play another game</button>
+      ${
+        state.games.length < state.roundsPlanned
+          ? `<button class="btn wide" id="replayBtn">Play round ${state.games.length + 1} of ${state.roundsPlanned}</button>
       <div style="height:8px"></div>
-      <button class="btn secondary wide" id="endSessionBtn">End session</button>
+      <button class="btn secondary wide" id="endSessionBtn">End session</button>`
+          : `<button class="btn wide" id="endSessionBtn">End session</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost wide" id="replayBtn">Play extra round</button>`
+      }
     `;
     els.score.classList.remove("hidden");
     document.getElementById("replayBtn").onclick = replaySame;
@@ -577,7 +671,7 @@
       .join("");
 
     els.score.innerHTML = `
-      <div class="tiny">Session recap · v${VERSION} · ${selectedGame().label}</div>
+      <div class="tiny">Session recap · v${VERSION} · ${selectedGame().label}${state.placeName ? ` · ${state.placeName}` : ""}</div>
       <div class="winner">
         <div class="tiny">${state.games.length} game${state.games.length === 1 ? "" : "s"}${ties ? ` · ${ties} tie${ties === 1 ? "" : "s"}` : ""}</div>
         <h2 style="margin:4px 0 6px">${line}</h2>
@@ -596,6 +690,7 @@
   function replaySame() {
     state.shots = [];
     state.lastYards = null;
+    state.handoffTo = null;
     state.phase = "play";
     els.score.classList.add("hidden");
     setChip("Play");
@@ -610,6 +705,8 @@
     state.lastYards = null;
     state.games = [];
     state.sessionYards = {};
+    state.handoffTo = null;
+    state.usingReference = false;
     els.score.classList.add("hidden");
     els.setup.classList.remove("hidden");
     setChip("Setup");
@@ -626,14 +723,15 @@
 
   function applyIndianTreeReference(reason) {
     if (!state.mapReady) initMap();
-    placeTee(INDIAN_TREE.bays.right, true);
+    state.usingReference = true;
+    placeTee(INDIAN_TREE.bays.right, true, { skipLookup: true });
     placePin(INDIAN_TREE.pins[150], true);
     map.fitBounds(L.latLngBounds([INDIAN_TREE.bays.right, INDIAN_TREE.pins[150]]).pad(0.55));
     saveGeom();
+    setPlaceLabel("Spotter Range");
     state.gpsNote =
       reason ||
       "Spotter Range is on the map as a stand-in layout. Drag Tee and Pin, or play it as-is.";
-    document.getElementById("siteLabel").textContent = "Spotter Range";
     renderDock();
   }
 
@@ -648,10 +746,10 @@
       (pos) => {
         const latlng = [pos.coords.latitude, pos.coords.longitude];
         const acc = Math.round(pos.coords.accuracy);
+        state.usingReference = false;
         map.setView(latlng, 19);
         placeTee(latlng);
         saveGeom();
-        document.getElementById("siteLabel").textContent = "Your GPS · tap the pin next";
         state.gpsNote = acc
           ? `Tee set from GPS (~${acc} m). Drag if it is off your pad.`
           : "Tee set from GPS. Drag if it is off your pad.";
@@ -677,11 +775,17 @@
     const allowed = [3, 4, 5];
     const rawShots = Number(document.getElementById("shots").value);
     state.shotsEach = allowed.includes(rawShots) ? rawShots : 5;
+    const rawRounds = Number(document.getElementById("rounds") && document.getElementById("rounds").value);
+    state.roundsPlanned = [1, 2, 3, 4, 5].includes(rawRounds) ? rawRounds : 3;
     const gameEl = document.getElementById("gameType");
     state.game = gameEl && gameEl.value ? gameEl.value : "closest";
     state.shots = [];
     state.lastYards = null;
     state.gpsNote = "";
+    state.handoffTo = null;
+    state.usingReference = false;
+    state.placeName = "";
+    setPlaceLabel("Any driving range");
     const useSaved = document.getElementById("useSavedBay").checked;
     const saved = readSavedGeom();
 
@@ -713,7 +817,7 @@
   }
 
   function renderDock() {
-    if (state.phase === "setup" || state.phase === "score") {
+    if (state.phase === "setup" || state.phase === "score" || state.phase === "recap") {
       els.dock.innerHTML = "";
       return;
     }
@@ -759,6 +863,20 @@
     }
 
     if (state.phase === "play") {
+      if (state.handoffTo != null) {
+        const nxt = state.handoffTo;
+        const done = state.names[nxt - 1] || "Last player";
+        els.dock.innerHTML = `
+          <div class="tiny">Round ${state.games.length + 1} of ${state.roundsPlanned} · ${state.placeName || "Spotter"}</div>
+          <p style="margin:4px 0 10px">${done} is done. Hand the phone over, then start ${state.names[nxt]}.</p>
+          <button class="btn wide" id="handoffBtn">Start ${state.names[nxt]}</button>
+        `;
+        document.getElementById("handoffBtn").onclick = () => {
+          state.handoffTo = null;
+          renderDock();
+        };
+        return;
+      }
       const player = currentPlayer();
       const c = counts();
       const last = state.shots[state.shots.length - 1];
@@ -777,9 +895,7 @@
             <div class="tiny">${
               player == null
                 ? "Game complete"
-                : c[player] === 0 && player > 0
-                  ? `Hand the phone — ${state.names[player]} hits all ${state.shotsEach}`
-                  : `${state.names[player]} hits their ${state.shotsEach}, then you switch`
+                : `Round ${state.games.length + 1} of ${state.roundsPlanned} · ${state.names[player]} hits all ${state.shotsEach}`
             }</div>
             <div class="big" style="font-size:18px">${
               player == null ? "See score" : `${state.names[player]} · ${c[player] + 1} of ${state.shotsEach}`
