@@ -32,7 +32,7 @@
   </div>
 
   <section class="screen" id="setupScreen">
-    <div class="tiny">Spotter v0.6.2</div>
+    <div class="tiny">Spotter v0.7.9</div>
     <h2>Range games</h2>
 
     <div class="field field-game">
@@ -47,7 +47,7 @@
       <li><strong>Second:</strong> select how many rounds for this session (default of 3).</li>
       <li><strong>Third:</strong> select how many balls each player gets.</li>
       <li><strong>Fourth:</strong> update player names as needed.</li>
-      <li><strong>Fifth:</strong> open the range, mark TEE (where you stand), then PIN (the target).</li>
+      <li><strong>Fifth:</strong> mark the four corners of the range (tee left, tee right, far right, far left). The map turns so the tee box sits at the bottom of the phone. Then mark the PIN.</li>
     </ol>
 
     <div class="row">
@@ -75,9 +75,9 @@
       <div class="field">
         <label for="shots">Shots each</label>
         <select id="shots">
-          <option value="3">3</option>
+          <option value="3" selected>3</option>
           <option value="4">4</option>
-          <option value="5" selected>5</option>
+          <option value="5">5</option>
         </select>
       </div>
     </div>
@@ -97,13 +97,14 @@
     </label>
     <p class="warn">Stay in the hitting bay. Mark the landing from the tee line. Do not walk down the range.</p>
     <div style="margin-top:16px">
-      <button class="btn wide" id="startBtn">Open the range</button>
+      <button class="btn wide" id="startBtn">Set up the range</button>
     </div>
   </section>
 
   <section class="screen hidden" id="scoreScreen"></section>
 
   <script src="vendor/leaflet.js"></script>
+  <script src="vendor/leaflet-rotate.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

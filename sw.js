@@ -1,4 +1,4 @@
-const CACHE = "spotter-v062";
+const CACHE = "spotter-v079";
 const PRECACHE = [
   "./",
   "./index.html",
@@ -9,7 +9,8 @@ const PRECACHE = [
   "./icon-512.png",
   "./apple-touch-icon.png",
   "./vendor/leaflet.css",
-  "./vendor/leaflet.js"
+  "./vendor/leaflet.js",
+  "./vendor/leaflet-rotate.js"
 ];
 
 self.addEventListener("install", (event) => {

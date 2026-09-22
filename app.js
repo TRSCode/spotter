@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.6.2";
+  const VERSION = "0.7.9";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -13,7 +13,7 @@
         ["Second", "select how many rounds for this session (default of 3)."],
         ["Third", "select how many balls each player gets."],
         ["Fourth", "update player names as needed."],
-        ["Fifth", "open the range, mark TEE (where you stand), then PIN (the target)."]
+        ["Fifth", "mark the four corners of the range, then the PIN. The tee box sits at the bottom of the phone."]
       ]
     }
   };
@@ -54,7 +54,10 @@
     mapReady: false,
     games: [],
     sessionYards: {},
-    gpsNote: ""
+    gpsNote: "",
+    corners: [],
+    rangeHeading: 0,
+    bearingNudge: 0
   };
 
   const els = {
@@ -69,7 +72,44 @@
     gameSteps: document.getElementById("gameSteps")
   };
 
-  let map, teeMarker, pinMarker, shotLayer, ringLayer;
+  let map, teeMarker, pinMarker, shotLayer, ringLayer, rangeLayer;
+  const CORNER_LABELS = [
+    "Tee left — near-left corner of the hitting bays",
+    "Tee right — near-right corner of the hitting bays",
+    "Far right — down-range right corner",
+    "Far left — down-range left corner"
+  ];
+
+  function destPoint(latlng, bearingDeg, yards) {
+    const R = 6371000;
+    const d = yards / YARDS_PER_METER;
+    const br = (bearingDeg * Math.PI) / 180;
+    const lat1 = (latlng[0] * Math.PI) / 180;
+    const lon1 = (latlng[1] * Math.PI) / 180;
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(d / R) + Math.cos(lat1) * Math.sin(d / R) * Math.cos(br)
+    );
+    const lon2 =
+      lon1 +
+      Math.atan2(
+        Math.sin(br) * Math.sin(d / R) * Math.cos(lat1),
+        Math.cos(d / R) - Math.sin(lat1) * Math.sin(lat2)
+      );
+    return [(lat2 * 180) / Math.PI, (lon2 * 180) / Math.PI];
+  }
+
+  function bearingDeg(a, b) {
+    const lat1 = (a[0] * Math.PI) / 180;
+    const lat2 = (b[0] * Math.PI) / 180;
+    const dLon = ((b[1] - a[1]) * Math.PI) / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  }
+
+  function midLatLng(a, b) {
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  }
 
   function playerN() {
     return state.names.length;
@@ -81,7 +121,7 @@
       if (!raw) return;
       const p = JSON.parse(raw);
       if (p.count) els.playerCount.value = String(p.count);
-      ["name1", "name2", "name3", "name4", "shots", "gameType", "rounds"].forEach((id) => {
+      ["name1", "name2", "name3", "name4", "gameType"].forEach((id) => {
         if (p[id] != null && document.getElementById(id)) document.getElementById(id).value = p[id];
       });
       if (p.useSavedBay && p.savedTee && p.savedPin) {
@@ -96,7 +136,9 @@
   function readSavedGeom() {
     try {
       const p = JSON.parse(localStorage.getItem(STORE) || "{}");
-      if (p.savedTee && p.savedPin) return { tee: p.savedTee, pin: p.savedPin };
+      if (p.savedTee && p.savedPin) {
+        return { tee: p.savedTee, pin: p.savedPin, corners: p.savedCorners || [] };
+      }
     } catch (_) {
       /* ignore */
     }
@@ -138,6 +180,7 @@
     })();
     prev.savedTee = state.tee;
     prev.savedPin = state.pin;
+    prev.savedCorners = state.corners;
     localStorage.setItem(STORE, JSON.stringify(prev));
   }
 
@@ -194,7 +237,9 @@
     }
     map = L.map("map", {
       zoomControl: true,
-      attributionControl: true
+      attributionControl: true,
+      rotate: true,
+      bearing: 0
     }).setView(INDIAN_TREE.center, INDIAN_TREE.zoom);
 
     L.tileLayer(
@@ -212,6 +257,7 @@
 
     shotLayer = L.layerGroup().addTo(map);
     ringLayer = L.layerGroup().addTo(map);
+    rangeLayer = L.layerGroup().addTo(map);
     state.mapReady = true;
     map.on("click", onMapClick);
     setTimeout(() => map.invalidateSize(), 80);
@@ -322,6 +368,93 @@
     if (!skipDock) renderDock();
   }
 
+  function applyRangeFrame() {
+    if (state.corners.length < 4) return;
+    const [teeL, teeR, farR, farL] = state.corners;
+    const teeMid = midLatLng(teeL, teeR);
+    const farMid = midLatLng(farL, farR);
+    state.tee = teeMid;
+    state.rangeHeading = bearingDeg(teeMid, farMid);
+    placeTee(teeMid, true, { skipLookup: state.usingReference });
+    drawRangeGuides();
+    spinTeeToBottom();
+    setTimeout(spinTeeToBottom, 120);
+  }
+
+  function clearCssSpin() {
+    if (!map) return;
+    ["mapPane", "rotatePane", "tilePane", "overlayPane"].forEach((name) => {
+      const p = map.getPane(name);
+      if (p && p.style && p.style.transform) {
+        p.style.transform = p.style.transform.replace(/rotate\([^)]*\)/g, "").replace(/\s+/g, " ").trim();
+      }
+    });
+  }
+
+  function spinTeeToBottom() {
+    if (!map || state.corners.length < 4) return;
+    clearCssSpin();
+    const faceUp = (state.rangeHeading + (state.bearingNudge || 0) + 360) % 360;
+    map._rotate = true;
+    map.options.rotate = true;
+    const b = L.latLngBounds(state.corners.map((c) => L.latLng(c[0], c[1])));
+    if (typeof map.setBearing === "function") map.setBearing(faceUp);
+    map.fitBounds(b, { padding: [28, 28], animate: false, maxZoom: 19 });
+    if (typeof map.setBearing === "function") map.setBearing(faceUp);
+    map.invalidateSize();
+  }
+
+  function turnRange(deg) {
+    const step = Number(deg) || 15;
+    state.bearingNudge = ((state.bearingNudge || 0) + step + 360) % 360;
+    spinTeeToBottom();
+  }
+
+  function drawRangeGuides() {
+    if (!rangeLayer) return;
+    rangeLayer.clearLayers();
+    state.corners.forEach((c, i) => {
+      L.circleMarker(c, {
+        radius: 7,
+        color: "#f4f1e8",
+        weight: 2,
+        fillColor: i < 2 ? "#7ed38a" : "#e6c36a",
+        fillOpacity: 1
+      })
+        .bindTooltip(`C${i + 1}`, { permanent: true, direction: "top", offset: [0, -8] })
+        .addTo(rangeLayer);
+    });
+    if (state.corners.length < 4) return;
+    const [teeL, teeR, farR, farL] = state.corners;
+    L.polygon([teeL, teeR, farR, farL], {
+      color: "#f4f1e8",
+      weight: 2,
+      fillColor: "#7ed38a",
+      fillOpacity: 0.06
+    }).addTo(rangeLayer);
+    const teeMid = midLatLng(teeL, teeR);
+    const farMid = midLatLng(farL, farR);
+    L.polyline([teeMid, farMid], {
+      color: "#e6c36a",
+      weight: 2,
+      dashArray: "6 8",
+      opacity: 0.9
+    }).addTo(rangeLayer);
+    const maxYd = Math.max(50, Math.round(yardsBetween(teeMid, farMid)));
+    for (let yd = 50; yd <= maxYd; yd += 50) {
+      const pt = destPoint(teeMid, state.rangeHeading || bearingDeg(teeMid, farMid), yd);
+      L.circleMarker(pt, {
+        radius: 4,
+        color: "#0d1c13",
+        weight: 1,
+        fillColor: "#e6c36a",
+        fillOpacity: 1
+      })
+        .bindTooltip(`${yd}`, { permanent: true, direction: "right", offset: [8, 0], className: "yd-tip" })
+        .addTo(rangeLayer);
+    }
+  }
+
   function drawRings() {
     ringLayer.clearLayers();
     if (!state.pin) return;
@@ -403,9 +536,18 @@
 
   function onMapClick(e) {
     const latlng = [e.latlng.lat, e.latlng.lng];
-    if (state.phase === "calibrate") {
+    if (state.phase === "calibrate" || state.phase === "corners") {
       state.usingReference = false;
-      placeTee(latlng);
+      if (state.phase === "calibrate") {
+        placeTee(latlng);
+        return;
+      }
+      if (state.corners.length < 4) {
+        state.corners.push(latlng);
+        drawRangeGuides();
+        if (state.corners.length === 4) applyRangeFrame();
+        renderDock();
+      }
       return;
     }
     if (state.phase === "pin") {
@@ -681,10 +823,45 @@
       </div>
       <div class="tiny">All games this visit</div>
       <div class="list">${gamesHtml || "<p class='lede'>No games recorded.</p>"}</div>
-      <button class="btn wide" id="homeBtn">Back to setup</button>
+      <button class="btn wide" id="shareBtn">Share results</button>
+      <div style="height:8px"></div>
+      <button class="btn secondary wide" id="homeBtn">Back to setup</button>
     `;
     els.score.classList.remove("hidden");
+    document.getElementById("shareBtn").onclick = shareSession;
     document.getElementById("homeBtn").onclick = resetToSetup;
+  }
+
+  function sessionShareText() {
+    const { line, tally, ties, ranked } = sessionHeadline();
+    const sessAvg = sessionAvgs();
+    const lines = [
+      `Spotter · ${selectedGame().label}`,
+      state.placeName || "Driving range",
+      line,
+      ranked.map((n) => `${n}: ${tally[n] || 0} win${tally[n] === 1 ? "" : "s"} · ${fmtAvg(sessAvg.avgs[n])}`).join("\n"),
+      ties ? `${ties} tie${ties === 1 ? "" : "s"}` : "",
+      `${state.games.length} round${state.games.length === 1 ? "" : "s"}`
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
+
+  async function shareSession() {
+    const text = sessionShareText();
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Spotter results", text });
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("Results copied. Paste them into a text or message.");
+    } catch (_) {
+      prompt("Copy results:", text);
+    }
   }
 
   function replaySame() {
@@ -707,6 +884,10 @@
     state.sessionYards = {};
     state.handoffTo = null;
     state.usingReference = false;
+    state.corners = [];
+    state.rangeHeading = 0;
+    if (map && typeof map.setBearing === "function") map.setBearing(0);
+    clearCssSpin();
     els.score.classList.add("hidden");
     els.setup.classList.remove("hidden");
     setChip("Setup");
@@ -724,11 +905,20 @@
   function applyIndianTreeReference(reason) {
     if (!state.mapReady) initMap();
     state.usingReference = true;
-    placeTee(INDIAN_TREE.bays.right, true, { skipLookup: true });
+    state.bearingNudge = 0;
+    state.corners = [
+      [39.83306148486516, -105.08417624992578],
+      [39.83372830136809, -105.08388755105248],
+      [39.83466082043433, -105.0859150351995],
+      [39.833782711619044, -105.08680594187898]
+    ];
+    map.setView(INDIAN_TREE.center, 17);
+    applyRangeFrame();
     placePin(INDIAN_TREE.pins[150], true);
-    map.fitBounds(L.latLngBounds([INDIAN_TREE.bays.right, INDIAN_TREE.pins[150]]).pad(0.55));
     saveGeom();
     setPlaceLabel("Spotter Range");
+    state.phase = "pin";
+    setChip("Pin");
     state.gpsNote =
       reason ||
       "Spotter Range is on the map as a stand-in layout. Drag Tee and Pin, or play it as-is.";
@@ -747,9 +937,11 @@
         const latlng = [pos.coords.latitude, pos.coords.longitude];
         const acc = Math.round(pos.coords.accuracy);
         state.usingReference = false;
-        map.setView(latlng, 19);
-        placeTee(latlng);
-        saveGeom();
+        map.setView(latlng, 18);
+        if (state.phase !== "corners") {
+          placeTee(latlng);
+          saveGeom();
+        }
         state.gpsNote = acc
           ? `Tee set from GPS (~${acc} m). Drag if it is off your pad.`
           : "Tee set from GPS. Drag if it is off your pad.";
@@ -793,15 +985,25 @@
     initMap();
 
     if (useSaved && saved) {
-      placeTee(saved.tee, true);
-      placePin(saved.pin, true);
-      enterPlay();
-      return;
+      if (saved.corners && saved.corners.length === 4) {
+        state.corners = saved.corners;
+        applyRangeFrame();
+      } else {
+        placeTee(saved.tee, true);
+      }
+      if (saved.pin) placePin(saved.pin, true);
+      if (state.tee && state.pin) {
+        enterPlay();
+        return;
+      }
     }
 
-    state.phase = "calibrate";
-    setChip("Tee");
+    state.corners = [];
+    state.rangeHeading = 0;
+    state.phase = "corners";
+    setChip("Range");
     map.setView(INDIAN_TREE.center, 17);
+    if (typeof map.setBearing === "function") map.setBearing(0);
     renderDock();
     useGpsForTee();
   }
@@ -812,13 +1014,48 @@
     setChip("Play");
     saveGeom();
     renderDock();
-    map.fitBounds(L.latLngBounds([state.tee, state.pin]).pad(0.6));
+    if (state.corners.length === 4) applyRangeFrame();
+    else map.fitBounds(L.latLngBounds([state.tee, state.pin]).pad(0.6));
     setTimeout(() => map.invalidateSize(), 60);
   }
 
   function renderDock() {
     if (state.phase === "setup" || state.phase === "score" || state.phase === "recap") {
       els.dock.innerHTML = "";
+      return;
+    }
+
+    if (state.phase === "corners") {
+      const n = state.corners.length;
+      els.dock.innerHTML = `
+        <div class="tiny">Range box · ${n} of 4 corners</div>
+        <p style="margin:4px 0 10px">${n < 4 ? CORNER_LABELS[n] : "Box set. Tee is the bottom of the phone. Next: pin."}</p>
+        <div class="btn-row" style="grid-template-columns:${n === 4 ? "1fr 1fr 1fr 1fr 1fr" : "1fr 1fr 1fr"}">
+          <button class="btn ghost" id="undoCorner" ${n ? "" : "disabled"}>Undo</button>
+          <button class="btn secondary" id="refBtn">Spotter Range</button>
+          ${n === 4 ? `<button class="btn secondary" id="turnLeft">↺ 15°</button>
+          <button class="btn secondary" id="turnRight">15° ↻</button>` : ""}
+          <button class="btn" id="cornersNext" ${n === 4 ? "" : "disabled"}>Set pin next</button>
+        </div>
+      `;
+      document.getElementById("undoCorner").onclick = () => {
+        state.corners.pop();
+        if (typeof map.setBearing === "function") map.setBearing(0);
+        drawRangeGuides();
+        renderDock();
+      };
+      document.getElementById("refBtn").onclick = () => applyIndianTreeReference();
+      const turnLeft = document.getElementById("turnLeft");
+      const turnRight = document.getElementById("turnRight");
+      if (turnLeft) turnLeft.onclick = () => turnRange(-15);
+      if (turnRight) turnRight.onclick = () => turnRange(15);
+      document.getElementById("cornersNext").onclick = () => {
+        if (state.corners.length < 4) return;
+        applyRangeFrame();
+        state.phase = "pin";
+        setChip("Pin");
+        renderDock();
+      };
       return;
     }
 
@@ -848,16 +1085,22 @@
       els.dock.innerHTML = `
         <div class="tiny">Step 2 of 2 · PIN · ${dist} from tee</div>
         <p style="margin:4px 0 10px">Tap the closest target you can see. Drag the orange pin if it lands off the flag.</p>
-        <div class="btn-row">
+        <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr">
           <button class="btn secondary" id="backCal">Back</button>
+          <button class="btn secondary" id="refBtn">Spotter Range</button>
+          <button class="btn secondary" id="turnLeft">↺ 15°</button>
+          <button class="btn secondary" id="turnRight">15° ↻</button>
           <button class="btn" id="startPlay" ${state.pin ? "" : "disabled"}>Start game</button>
         </div>
       `;
       document.getElementById("backCal").onclick = () => {
-        state.phase = "calibrate";
-        setChip("Calibrate");
+        state.phase = "corners";
+        setChip("Range");
         renderDock();
       };
+      document.getElementById("refBtn").onclick = () => applyIndianTreeReference();
+      document.getElementById("turnLeft").onclick = () => turnRange(-15);
+      document.getElementById("turnRight").onclick = () => turnRange(15);
       document.getElementById("startPlay").onclick = enterPlay;
       return;
     }
@@ -907,10 +1150,12 @@
           </div>
         </div>
         <div class="scoreline" style="margin-bottom:8px">${cards}</div>
-        <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr">
+        <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr">
           <button class="btn ghost" id="undoBtn" ${state.shots.length ? "" : "disabled"}>Undo</button>
           <button class="btn secondary" id="missBtn" ${player == null ? "disabled" : ""}>Missed</button>
           <button class="btn secondary" id="movePin">Pin</button>
+          <button class="btn secondary" id="turnLeft">↺</button>
+          <button class="btn secondary" id="turnRight">↻</button>
           <button class="btn danger" id="endBtn">End</button>
         </div>
       `;
@@ -921,6 +1166,8 @@
         setChip("Pin");
         renderDock();
       };
+      document.getElementById("turnLeft").onclick = () => turnRange(-15);
+      document.getElementById("turnRight").onclick = () => turnRange(15);
       document.getElementById("endBtn").onclick = finishGame;
     }
   }

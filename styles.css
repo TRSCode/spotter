@@ -339,3 +339,10 @@ input[type="text"], input[type="number"], select {
   color: var(--gold);
   margin-top: 8px;
 }
+
+.yd-tip {
+  background: #0d1c13 !important;
+  color: #e6c36a !important;
+  border: 1px solid rgba(244,241,232,.2) !important;
+  font-weight: 700;
+}
