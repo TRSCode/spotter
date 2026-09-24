@@ -311,6 +311,36 @@ input[type="text"], input[type="number"], select {
   margin-bottom: 16px;
 }
 
+.honor {
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin: 0 0 10px;
+}
+.honor.champ {
+  background: linear-gradient(180deg, #2f6a3c, #1e3d28);
+  border: 1px solid rgba(230, 195, 106, 0.55);
+}
+.honor.runner {
+  background: #16281c;
+  border: 1px solid rgba(94, 200, 255, 0.4);
+}
+.honor-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 700;
+}
+.honor.runner .honor-label { color: var(--p1); }
+.honor h2 { margin: 4px 0 0; font-size: 20px; }
+.share-card {
+  width: 100%;
+  border-radius: 16px;
+  display: block;
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+}
+
 .leaflet-container { background: #163022; font-family: inherit; }
 .leaflet-control-zoom { border: 0 !important; }
 .leaflet-control-zoom a {

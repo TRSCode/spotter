@@ -32,7 +32,7 @@
   </div>
 
   <section class="screen" id="setupScreen">
-    <div class="tiny">Spotter v0.7.9</div>
+    <div class="tiny">Spotter v0.8.1</div>
     <h2>Range games</h2>
 
     <div class="field field-game">
@@ -83,12 +83,12 @@
     </div>
 
     <div class="row" style="margin-top:10px">
-      <div class="field"><label for="name1">Player 1</label><input id="name1" type="text" value="Player 1" autocomplete="off" /></div>
-      <div class="field"><label for="name2">Player 2</label><input id="name2" type="text" value="Player 2" autocomplete="off" /></div>
+      <div class="field"><label for="name1">Player 1</label><input id="name1" type="text" value="" placeholder="Player 1" autocomplete="off" /></div>
+      <div class="field"><label for="name2">Player 2</label><input id="name2" type="text" value="" placeholder="Player 2" autocomplete="off" /></div>
     </div>
     <div class="row" id="extraNames" style="margin-top:10px">
-      <div class="field" id="wrap3"><label for="name3">Player 3</label><input id="name3" type="text" value="Player 3" autocomplete="off" /></div>
-      <div class="field" id="wrap4"><label for="name4">Player 4</label><input id="name4" type="text" value="Player 4" autocomplete="off" /></div>
+      <div class="field" id="wrap3"><label for="name3">Player 3</label><input id="name3" type="text" value="" placeholder="Player 3" autocomplete="off" /></div>
+      <div class="field" id="wrap4"><label for="name4">Player 4</label><input id="name4" type="text" value="" placeholder="Player 4" autocomplete="off" /></div>
     </div>
 
     <label class="check">
@@ -98,6 +98,8 @@
     <p class="warn">Stay in the hitting bay. Mark the landing from the tee line. Do not walk down the range.</p>
     <div style="margin-top:16px">
       <button class="btn wide" id="startBtn">Set up the range</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost wide" id="reloadBtn">Reload latest version</button>
     </div>
   </section>
 

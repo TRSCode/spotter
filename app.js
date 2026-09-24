@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.7.9";
+  const VERSION = "0.8.1";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -42,7 +42,7 @@
     phase: "setup",
     names: ["Player 1", "Player 2"],
     game: "closest",
-    shotsEach: 5,
+    shotsEach: 3,
     roundsPlanned: 3,
     handoffTo: null,
     placeName: "",
@@ -57,7 +57,8 @@
     gpsNote: "",
     corners: [],
     rangeHeading: 0,
-    bearingNudge: 0
+    bearingNudge: 0,
+    shareBlob: null
   };
 
   const els = {
@@ -122,7 +123,10 @@
       const p = JSON.parse(raw);
       if (p.count) els.playerCount.value = String(p.count);
       ["name1", "name2", "name3", "name4", "gameType"].forEach((id) => {
-        if (p[id] != null && document.getElementById(id)) document.getElementById(id).value = p[id];
+        if (p[id] == null || !document.getElementById(id)) return;
+        const el = document.getElementById(id);
+        const def = id.startsWith("name") ? `Player ${id.slice(-1)}` : "";
+        el.value = p[id] === def ? "" : p[id];
       });
       if (p.useSavedBay && p.savedTee && p.savedPin) {
         document.getElementById("useSavedBay").checked = true;
@@ -660,8 +664,14 @@
     if (result.names.length === 1) headline = `${result.names[0]} closest tap`;
     else if (result.names.length > 1) headline = `Closest tap tie: ${result.names.join(" & ")}`;
     let avgLine = "No averages yet.";
-    if (avg.names.length === 1) avgLine = `${avg.names[0]} best average`;
-    else if (avg.names.length > 1) avgLine = `Average tie: ${avg.names.join(" & ")}`;
+    if (avg.names.length === 1) avgLine = `${avg.names[0]}`;
+    else if (avg.names.length > 1) avgLine = avg.names.join(" & ");
+    const sameHonor =
+      result.names.length === 1 && avg.names.length === 1 && result.names[0] === avg.names[0];
+    const honorHtml = sameHonor
+      ? `<div class="honor champ"><div class="honor-label">Winner · closest and best average</div><h2>${headline}</h2></div>`
+      : `<div class="honor champ"><div class="honor-label">Winner · closest to the pin</div><h2>${headline}</h2></div>
+         <div class="honor runner"><div class="honor-label">Runner-up · best average</div><h2>${avgLine}</h2></div>`;
 
     const { tally, ties } = sessionWins();
     const ranked = Object.keys(tally).sort((a, b) => tally[b] - tally[a] || a.localeCompare(b));
@@ -728,8 +738,7 @@
       <div class="tiny">Closest to the pin · v${VERSION} · round ${state.games.length} of ${state.roundsPlanned}${state.placeName ? ` · ${state.placeName}` : ""}</div>
       <div class="winner">
         <div class="tiny">This game · ${selectedGame().label}</div>
-        <h2 style="margin:4px 0 6px">${headline}</h2>
-        <p class="lede" style="margin:0 0 10px">${avgLine}</p>
+        ${honorHtml}
         <div class="row">${playerCards}</div>
       </div>
       <div class="winner" style="margin-top:12px">
@@ -801,10 +810,18 @@
     const sessAvg = sessionAvgs();
     let avgHonor = "No averages this session.";
     if (sessAvg.names.length === 1) {
-      avgHonor = `${sessAvg.names[0]} best average ${fmtAvg(sessAvg.avgs[sessAvg.names[0]])}`;
+      avgHonor = `${sessAvg.names[0]} · ${fmtAvg(sessAvg.avgs[sessAvg.names[0]])}`;
     } else if (sessAvg.names.length > 1) {
-      avgHonor = `Average tied: ${sessAvg.names.join(" & ")}`;
+      avgHonor = sessAvg.names.map((n) => `${n} · ${fmtAvg(sessAvg.avgs[n])}`).join(" & ");
     }
+    const sameSessionHonor =
+      line.indexOf("won the session") !== -1 &&
+      sessAvg.names.length === 1 &&
+      line.startsWith(sessAvg.names[0]);
+    const sessionHonors = sameSessionHonor
+      ? `<div class="honor champ"><div class="honor-label">Winner · session and best average</div><h2>${line}</h2></div>`
+      : `<div class="honor champ"><div class="honor-label">Winner</div><h2>${line}</h2></div>
+         <div class="honor runner"><div class="honor-label">Runner-up · best average</div><h2>${avgHonor}</h2></div>`;
     const cards = state.names
       .map((n, i) => `<div class="player p${i + 1}">
         <div class="name">${n}</div>
@@ -816,20 +833,102 @@
       <div class="tiny">Session recap · v${VERSION} · ${selectedGame().label}${state.placeName ? ` · ${state.placeName}` : ""}</div>
       <div class="winner">
         <div class="tiny">${state.games.length} game${state.games.length === 1 ? "" : "s"}${ties ? ` · ${ties} tie${ties === 1 ? "" : "s"}` : ""}</div>
-        <h2 style="margin:4px 0 6px">${line}</h2>
-        <p class="lede" style="margin:0 0 8px">${scoreLine || "No wins recorded."}</p>
-        <p class="lede" style="margin:0 0 10px">${avgHonor}</p>
+        ${sessionHonors}
+        <p class="lede" style="margin:0 0 10px">${scoreLine || "No wins recorded."}</p>
         <div class="row">${cards}</div>
       </div>
+      <img class="share-card" id="sharePreview" alt="Results card" />
       <div class="tiny">All games this visit</div>
       <div class="list">${gamesHtml || "<p class='lede'>No games recorded.</p>"}</div>
-      <button class="btn wide" id="shareBtn">Share results</button>
+      <button class="btn wide" id="shareBtn">Share results card</button>
       <div style="height:8px"></div>
       <button class="btn secondary wide" id="homeBtn">Back to setup</button>
     `;
     els.score.classList.remove("hidden");
     document.getElementById("shareBtn").onclick = shareSession;
     document.getElementById("homeBtn").onclick = resetToSetup;
+    paintShareCard().then((url) => {
+      const img = document.getElementById("sharePreview");
+      if (img && url) img.src = url;
+    });
+  }
+
+  function paintShareCard() {
+    const { line, tally, ranked } = sessionHeadline();
+    const sessAvg = sessionAvgs();
+    const w = 1080;
+    const h = 1350;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#12261a";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#1b3324";
+    ctx.fillRect(48, 48, w - 96, h - 96);
+    ctx.strokeStyle = "rgba(230,195,106,.45)";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(48, 48, w - 96, h - 96);
+    ctx.fillStyle = "#2e7d46";
+    ctx.fillRect(80, 80, 72, 72);
+    ctx.fillStyle = "#f4f1e8";
+    ctx.font = "700 40px Trebuchet MS, sans-serif";
+    ctx.fillText("S", 100, 130);
+    ctx.font = "700 52px Trebuchet MS, sans-serif";
+    ctx.fillText("Spotter", 172, 128);
+    ctx.fillStyle = "#b7c4b4";
+    ctx.font = "28px Trebuchet MS, sans-serif";
+    ctx.fillText(state.placeName || "Driving range", 172, 168);
+    ctx.fillStyle = "#e6c36a";
+    ctx.font = "700 22px Trebuchet MS, sans-serif";
+    ctx.fillText("WINNER", 80, 260);
+    ctx.fillStyle = "#f4f1e8";
+    ctx.font = "700 48px Trebuchet MS, sans-serif";
+    wrapText(ctx, line, 80, 320, w - 160, 56);
+    ctx.fillStyle = "#5ec8ff";
+    ctx.font = "700 22px Trebuchet MS, sans-serif";
+    ctx.fillText("RUNNER-UP  ·  BEST AVERAGE", 80, 470);
+    ctx.fillStyle = "#f4f1e8";
+    ctx.font = "700 40px Trebuchet MS, sans-serif";
+    const avgNames = sessAvg.names.length
+      ? sessAvg.names.map((n) => `${n}  ${fmtAvg(sessAvg.avgs[n])}`).join("  ·  ")
+      : "No average";
+    wrapText(ctx, avgNames, 80, 524, w - 160, 48);
+    let y = 640;
+    ranked.forEach((n, i) => {
+      ctx.fillStyle = COLORS[Math.min(i, COLORS.length - 1)];
+      ctx.fillRect(80, y, 18, 18);
+      ctx.fillStyle = "#f4f1e8";
+      ctx.font = "700 32px Trebuchet MS, sans-serif";
+      ctx.fillText(n, 114, y + 22);
+      ctx.fillStyle = "#b7c4b4";
+      ctx.font = "28px Trebuchet MS, sans-serif";
+      ctx.fillText(`${tally[n] || 0} wins   ${fmtAvg(sessAvg.avgs[n])}`, 114, y + 58);
+      y += 100;
+    });
+    ctx.fillStyle = "#b7c4b4";
+    ctx.font = "24px Trebuchet MS, sans-serif";
+    ctx.fillText(`${state.games.length} round${state.games.length === 1 ? "" : "s"}  ·  ${selectedGame().label}`, 80, h - 100);
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        state.shareBlob = blob;
+        resolve(blob ? URL.createObjectURL(blob) : "");
+      }, "image/png");
+    });
+  }
+
+  function wrapText(ctx, text, x, y, maxW, lineH) {
+    const words = String(text).split(" ");
+    let line = "";
+    words.forEach((word) => {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxW && line) {
+        ctx.fillText(line, x, y);
+        line = word;
+        y += lineH;
+      } else line = test;
+    });
+    if (line) ctx.fillText(line, x, y);
   }
 
   function sessionShareText() {
@@ -848,13 +947,29 @@
 
   async function shareSession() {
     const text = sessionShareText();
+    if (!state.shareBlob) await paintShareCard();
+    const file = state.shareBlob
+      ? new File([state.shareBlob], "spotter-results.png", { type: "image/png" })
+      : null;
     try {
+      if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ title: "Spotter results", text, files: [file] });
+        return;
+      }
       if (navigator.share) {
         await navigator.share({ title: "Spotter results", text });
         return;
       }
     } catch (err) {
       if (err && err.name === "AbortError") return;
+    }
+    if (state.shareBlob) {
+      const url = URL.createObjectURL(state.shareBlob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "spotter-results.png";
+      a.click();
+      return;
     }
     try {
       await navigator.clipboard.writeText(text);
@@ -966,7 +1081,7 @@
     state.names = raw.slice(0, n);
     const allowed = [3, 4, 5];
     const rawShots = Number(document.getElementById("shots").value);
-    state.shotsEach = allowed.includes(rawShots) ? rawShots : 5;
+    state.shotsEach = allowed.includes(rawShots) ? rawShots : 3;
     const rawRounds = Number(document.getElementById("rounds") && document.getElementById("rounds").value);
     state.roundsPlanned = [1, 2, 3, 4, 5].includes(rawRounds) ? rawRounds : 3;
     const gameEl = document.getElementById("gameType");
@@ -1184,6 +1299,30 @@
   els.playerCount.addEventListener("change", syncNameFields);
   if (els.gameType) els.gameType.addEventListener("change", renderGameSteps);
   document.getElementById("startBtn").onclick = startSession;
+  const reloadBtn = document.getElementById("reloadBtn");
+  if (reloadBtn) reloadBtn.onclick = forceLatest;
+
+  async function forceLatest() {
+    reloadBtn.disabled = true;
+    reloadBtn.textContent = "Clearing old copy…";
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch (_) {
+      /* still reload */
+    }
+    const url = new URL(location.href);
+    url.searchParams.set("v", VERSION);
+    url.searchParams.set("r", String(Date.now()));
+    location.replace(url.toString());
+  }
+
   loadPrefs();
   renderGameSteps();
   setChip("Setup");
