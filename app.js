@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.8.1";
+  const VERSION = "0.8.4";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -58,6 +58,7 @@
     corners: [],
     rangeHeading: 0,
     bearingNudge: 0,
+    lockedHeading: null,
     shareBlob: null
   };
 
@@ -378,7 +379,10 @@
     const teeMid = midLatLng(teeL, teeR);
     const farMid = midLatLng(farL, farR);
     state.tee = teeMid;
-    state.rangeHeading = bearingDeg(teeMid, farMid);
+    state.downrangeBearing = bearingDeg(teeMid, farMid);
+    state.rangeHeading = state.lockedHeading != null
+      ? state.lockedHeading
+      : state.downrangeBearing;
     placeTee(teeMid, true, { skipLookup: state.usingReference });
     drawRangeGuides();
     spinTeeToBottom();
@@ -446,7 +450,7 @@
     }).addTo(rangeLayer);
     const maxYd = Math.max(50, Math.round(yardsBetween(teeMid, farMid)));
     for (let yd = 50; yd <= maxYd; yd += 50) {
-      const pt = destPoint(teeMid, state.rangeHeading || bearingDeg(teeMid, farMid), yd);
+      const pt = destPoint(teeMid, state.downrangeBearing || bearingDeg(teeMid, farMid), yd);
       L.circleMarker(pt, {
         radius: 4,
         color: "#0d1c13",
@@ -1001,6 +1005,7 @@
     state.usingReference = false;
     state.corners = [];
     state.rangeHeading = 0;
+    state.lockedHeading = null;
     if (map && typeof map.setBearing === "function") map.setBearing(0);
     clearCssSpin();
     els.score.classList.add("hidden");
@@ -1021,6 +1026,7 @@
     if (!state.mapReady) initMap();
     state.usingReference = true;
     state.bearingNudge = 0;
+    state.lockedHeading = 70;
     state.corners = [
       [39.83306148486516, -105.08417624992578],
       [39.83372830136809, -105.08388755105248],
@@ -1115,6 +1121,7 @@
 
     state.corners = [];
     state.rangeHeading = 0;
+    state.lockedHeading = null;
     state.phase = "corners";
     setChip("Range");
     map.setView(INDIAN_TREE.center, 17);
