@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.8.4";
+  const VERSION = "0.9.1";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -13,7 +13,7 @@
         ["Second", "select how many rounds for this session (default of 3)."],
         ["Third", "select how many balls each player gets."],
         ["Fourth", "update player names as needed."],
-        ["Fifth", "mark the four corners of the range, then the PIN. The tee box sits at the bottom of the phone."]
+        ["Fifth", "open the range. Aim the phone, confirm your tee, then confirm the pin."]
       ]
     }
   };
@@ -59,6 +59,7 @@
     rangeHeading: 0,
     bearingNudge: 0,
     lockedHeading: null,
+    teeLocked: false,
     shareBlob: null
   };
 
@@ -293,6 +294,7 @@
     teeMarker.on("dragend", () => {
       const p = teeMarker.getLatLng();
       state.tee = [p.lat, p.lng];
+      state.teeLocked = true;
       saveGeom();
       if (!state.usingReference) lookupPlace(state.tee);
       renderDock();
@@ -383,7 +385,12 @@
     state.rangeHeading = state.lockedHeading != null
       ? state.lockedHeading
       : state.downrangeBearing;
-    placeTee(teeMid, true, { skipLookup: state.usingReference });
+    if (!state.teeLocked) {
+      state.tee = teeMid;
+      placeTee(teeMid, true, { skipLookup: state.usingReference });
+    } else if (state.tee) {
+      placeTee(state.tee, true, { skipLookup: true });
+    }
     drawRangeGuides();
     spinTeeToBottom();
     setTimeout(spinTeeToBottom, 120);
@@ -544,12 +551,14 @@
 
   function onMapClick(e) {
     const latlng = [e.latlng.lat, e.latlng.lng];
-    if (state.phase === "calibrate" || state.phase === "corners") {
+    if (state.phase === "tee" || state.phase === "calibrate") {
+      state.teeLocked = true;
+      placeTee(latlng);
+      return;
+    }
+    if (state.phase === "outline" || state.phase === "corners") {
       state.usingReference = false;
-      if (state.phase === "calibrate") {
-        placeTee(latlng);
-        return;
-      }
+      state.lockedHeading = null;
       if (state.corners.length < 4) {
         state.corners.push(latlng);
         drawRangeGuides();
@@ -1011,6 +1020,7 @@
     els.score.classList.add("hidden");
     els.setup.classList.remove("hidden");
     setChip("Setup");
+    if (map && shotLayer) redrawShots();
     els.dock.innerHTML = "";
   }
 
@@ -1025,6 +1035,7 @@
   function applyIndianTreeReference(reason) {
     if (!state.mapReady) initMap();
     state.usingReference = true;
+    state.teeLocked = false;
     state.bearingNudge = 0;
     state.lockedHeading = 70;
     state.corners = [
@@ -1038,12 +1049,59 @@
     placePin(INDIAN_TREE.pins[150], true);
     saveGeom();
     setPlaceLabel("Spotter Range");
-    state.phase = "pin";
-    setChip("Pin");
-    state.gpsNote =
-      reason ||
-      "Spotter Range is on the map as a stand-in layout. Drag Tee and Pin, or play it as-is.";
+    state.phase = "aim";
+    setChip("Aim");
+    state.gpsNote = reason || "Spotter Range is aimed. Confirm the pads, then your tee, then the pin.";
     renderDock();
+  }
+
+  function clearReferenceMarks() {
+    state.usingReference = false;
+    state.teeLocked = false;
+    state.lockedHeading = null;
+    state.corners = [];
+    state.pin = null;
+    if (pinMarker) {
+      map.removeLayer(pinMarker);
+      pinMarker = null;
+    }
+    if (ringLayer) ringLayer.clearLayers();
+    if (rangeLayer) rangeLayer.clearLayers();
+    if (typeof map.setBearing === "function") map.setBearing(0);
+    clearCssSpin();
+  }
+
+  function useMyLocation() {
+    if (!navigator.geolocation) {
+      state.gpsNote = "This phone has no GPS. Stay on Spotter Range, or pan the map yourself.";
+      renderDock();
+      return;
+    }
+    state.gpsNote = "Finding you… allow Location if the phone asks.";
+    renderDock();
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const latlng = [pos.coords.latitude, pos.coords.longitude];
+        const acc = Math.round(pos.coords.accuracy);
+        clearReferenceMarks();
+        map.setView(latlng, 18);
+        placeTee(latlng, true);
+        state.teeLocked = true;
+        saveGeom();
+        lookupPlace(latlng);
+        state.phase = "outline";
+        setChip("Range");
+        state.gpsNote = acc
+          ? `You are here (~${acc} m). Tap the four corners of this range.`
+          : "You are here. Tap the four corners of this range.";
+        renderDock();
+      },
+      (err) => {
+        state.gpsNote = `${gpsErrorText(err)} Spotter Range is still on the map.`;
+        renderDock();
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
   }
 
   function useGpsForTee() {
@@ -1104,6 +1162,7 @@
 
     els.setup.classList.add("hidden");
     initMap();
+    redrawShots();
 
     if (useSaved && saved) {
       if (saved.corners && saved.corners.length === 4) {
@@ -1111,6 +1170,7 @@
         applyRangeFrame();
       } else {
         placeTee(saved.tee, true);
+        state.teeLocked = true;
       }
       if (saved.pin) placePin(saved.pin, true);
       if (state.tee && state.pin) {
@@ -1119,15 +1179,7 @@
       }
     }
 
-    state.corners = [];
-    state.rangeHeading = 0;
-    state.lockedHeading = null;
-    state.phase = "corners";
-    setChip("Range");
-    map.setView(INDIAN_TREE.center, 17);
-    if (typeof map.setBearing === "function") map.setBearing(0);
-    renderDock();
-    useGpsForTee();
+    applyIndianTreeReference();
   }
 
   function enterPlay() {
@@ -1136,8 +1188,11 @@
     setChip("Play");
     saveGeom();
     renderDock();
-    if (state.corners.length === 4) applyRangeFrame();
-    else map.fitBounds(L.latLngBounds([state.tee, state.pin]).pad(0.6));
+    redrawShots();
+    if (state.corners.length === 4) {
+      drawRangeGuides();
+      spinTeeToBottom();
+    } else map.fitBounds(L.latLngBounds([state.tee, state.pin]).pad(0.6));
     setTimeout(() => map.invalidateSize(), 60);
   }
 
@@ -1147,54 +1202,82 @@
       return;
     }
 
-    if (state.phase === "corners") {
-      const n = state.corners.length;
+    if (state.phase === "aim") {
       els.dock.innerHTML = `
-        <div class="tiny">Range box · ${n} of 4 corners</div>
-        <p style="margin:4px 0 10px">${n < 4 ? CORNER_LABELS[n] : "Box set. Tee is the bottom of the phone. Next: pin."}</p>
-        <div class="btn-row" style="grid-template-columns:${n === 4 ? "1fr 1fr 1fr 1fr 1fr" : "1fr 1fr 1fr"}">
-          <button class="btn ghost" id="undoCorner" ${n ? "" : "disabled"}>Undo</button>
-          <button class="btn secondary" id="refBtn">Spotter Range</button>
-          ${n === 4 ? `<button class="btn secondary" id="turnLeft">↺ 15°</button>
-          <button class="btn secondary" id="turnRight">15° ↻</button>` : ""}
-          <button class="btn" id="cornersNext" ${n === 4 ? "" : "disabled"}>Set pin next</button>
+        <div class="tiny">Step 1 of 3 · Aim the phone</div>
+        <p style="margin:4px 0 10px">Turn the map until the tee pads are at the bottom of the phone.</p>
+        <div class="btn-row" style="grid-template-columns:1fr 1fr 1.4fr">
+          <button class="btn secondary" id="turnLeft">↺ 15°</button>
+          <button class="btn secondary" id="turnRight">15° ↻</button>
+          <button class="btn" id="aimNext">Pads look right</button>
         </div>
+        <button class="btn ghost wide" id="hereBtn" style="margin-top:8px">I'm at a different range</button>
       `;
-      document.getElementById("undoCorner").onclick = () => {
-        state.corners.pop();
-        if (typeof map.setBearing === "function") map.setBearing(0);
-        drawRangeGuides();
+      document.getElementById("turnLeft").onclick = () => turnRange(-15);
+      document.getElementById("turnRight").onclick = () => turnRange(15);
+      document.getElementById("aimNext").onclick = () => {
+        state.phase = "tee";
+        setChip("Tee");
         renderDock();
       };
-      document.getElementById("refBtn").onclick = () => applyIndianTreeReference();
-      const turnLeft = document.getElementById("turnLeft");
-      const turnRight = document.getElementById("turnRight");
-      if (turnLeft) turnLeft.onclick = () => turnRange(-15);
-      if (turnRight) turnRight.onclick = () => turnRange(15);
-      document.getElementById("cornersNext").onclick = () => {
-        if (state.corners.length < 4) return;
-        applyRangeFrame();
-        state.phase = "pin";
-        setChip("Pin");
-        renderDock();
-      };
+      document.getElementById("hereBtn").onclick = useMyLocation;
       return;
     }
 
-    if (state.phase === "calibrate") {
+    if (state.phase === "outline" || state.phase === "corners") {
+      const n = state.corners.length;
+      const prompts = [
+        "Tap the left edge of the tee box.",
+        "Tap the right edge of the tee box.",
+        "Tap the far-right corner of the landing area.",
+        "Tap the far-left corner of the landing area."
+      ];
       els.dock.innerHTML = `
-        <div class="tiny">Step 1 of 2 · TEE</div>
-        <p style="margin:4px 0 10px">${state.gpsNote || "Use GPS for the pad you are standing on, or tap that spot on the map."}</p>
-        <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr">
-          <button class="btn secondary" id="gpsBtn">Use my GPS</button>
-          <button class="btn secondary" id="refBtn">Spotter Range</button>
-          <button class="btn" id="teeNext" ${state.tee ? "" : "disabled"}>Set pin next</button>
+        <div class="tiny">Outline · corner ${Math.min(n + 1, 4)} of 4</div>
+        <p style="margin:4px 0 10px">${state.gpsNote || (n < 4 ? prompts[n] : "Box set. Next, confirm your tee.")}</p>
+        <div class="btn-row" style="grid-template-columns:1fr 1fr">
+          <button class="btn ghost" id="undoCorner" ${n ? "" : "disabled"}>Undo</button>
+          <button class="btn secondary" id="hereBtn">Find me</button>
+        </div>
+        <button class="btn" id="outlineNext" style="margin-top:8px" ${n === 4 ? "" : "disabled"}>Tee next</button>
+        <button class="btn ghost wide" id="refBtn" style="margin-top:8px">Use Spotter Range</button>
+      `;
+      document.getElementById("undoCorner").onclick = () => {
+        state.corners.pop();
+        state.gpsNote = "";
+        drawRangeGuides();
+        renderDock();
+      };
+      document.getElementById("hereBtn").onclick = useMyLocation;
+      document.getElementById("outlineNext").onclick = () => {
+        if (state.corners.length < 4) return;
+        applyRangeFrame();
+        state.phase = "tee";
+        setChip("Tee");
+        renderDock();
+      };
+      document.getElementById("refBtn").onclick = () => applyIndianTreeReference();
+      return;
+    }
+
+    if (state.phase === "tee" || state.phase === "calibrate") {
+      els.dock.innerHTML = `
+        <div class="tiny">Step 2 of 3 · Tee</div>
+        <p style="margin:4px 0 10px">Drag the green tee onto your bay, or tap the pad you are standing on.</p>
+        <div class="btn-row" style="grid-template-columns:1fr 1.4fr">
+          <button class="btn secondary" id="backAim">Back</button>
+          <button class="btn" id="teeNext" ${state.tee ? "" : "disabled"}>Tee is here</button>
         </div>
       `;
-      document.getElementById("gpsBtn").onclick = useGpsForTee;
-      document.getElementById("refBtn").onclick = () => applyIndianTreeReference();
+      document.getElementById("backAim").onclick = () => {
+        state.phase = state.corners.length === 4 && !state.usingReference ? "outline" : "aim";
+        setChip(state.phase === "outline" ? "Range" : "Aim");
+        renderDock();
+      };
       document.getElementById("teeNext").onclick = () => {
         if (!state.tee) return;
+        state.teeLocked = true;
+        if (!state.pin && state.usingReference) placePin(INDIAN_TREE.pins[150], true);
         state.phase = "pin";
         setChip("Pin");
         renderDock();
@@ -1205,24 +1288,18 @@
     if (state.phase === "pin") {
       const dist = state.tee && state.pin ? fmt(yardsBetween(state.tee, state.pin)) : "—";
       els.dock.innerHTML = `
-        <div class="tiny">Step 2 of 2 · PIN · ${dist} from tee</div>
-        <p style="margin:4px 0 10px">Tap the closest target you can see. Drag the orange pin if it lands off the flag.</p>
-        <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr">
-          <button class="btn secondary" id="backCal">Back</button>
-          <button class="btn secondary" id="refBtn">Spotter Range</button>
-          <button class="btn secondary" id="turnLeft">↺ 15°</button>
-          <button class="btn secondary" id="turnRight">15° ↻</button>
+        <div class="tiny">Step 3 of 3 · Target · ${dist} from tee</div>
+        <p style="margin:4px 0 10px">Tap the closest flag you can see. Drag the orange pin if it lands off the flag.</p>
+        <div class="btn-row" style="grid-template-columns:1fr 1.4fr">
+          <button class="btn secondary" id="backTee">Back</button>
           <button class="btn" id="startPlay" ${state.pin ? "" : "disabled"}>Start game</button>
         </div>
       `;
-      document.getElementById("backCal").onclick = () => {
-        state.phase = "corners";
-        setChip("Range");
+      document.getElementById("backTee").onclick = () => {
+        state.phase = "tee";
+        setChip("Tee");
         renderDock();
       };
-      document.getElementById("refBtn").onclick = () => applyIndianTreeReference();
-      document.getElementById("turnLeft").onclick = () => turnRange(-15);
-      document.getElementById("turnRight").onclick = () => turnRange(15);
       document.getElementById("startPlay").onclick = enterPlay;
       return;
     }
