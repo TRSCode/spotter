@@ -1,4 +1,4 @@
-const CACHE = "spotter-v092";
+const CACHE = "spotter-v101";
 const PRECACHE = [
   "./",
   "./index.html",

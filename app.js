@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.9.2";
+  const VERSION = "0.10.1";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -14,6 +14,17 @@
         ["Third", "select how many balls each player gets."],
         ["Fourth", "update player names as needed."],
         ["Fifth", "open the range. Aim the phone, confirm your tee, then confirm the pin."]
+      ]
+    },
+    longest: {
+      id: "longest",
+      label: "Longest Carry",
+      steps: [
+        ["First", "select the number of players."],
+        ["Second", "select how many rounds for this session (default of 3)."],
+        ["Third", "select how many balls each player gets."],
+        ["Fourth", "update player names as needed."],
+        ["Fifth", "open the range. Only balls inside the outline count. Each player gets one mulligan per round."]
       ]
     }
   };
@@ -60,6 +71,7 @@
     bearingNudge: 0,
     lockedHeading: null,
     teeLocked: false,
+    mulliganUsed: [false, false, false, false],
     shareBlob: null
   };
 
@@ -225,6 +237,34 @@
 
   function yardsBetween(a, b) {
     return haversineMeters(a, b) * YARDS_PER_METER;
+  }
+
+  function isLongest() {
+    return state.game === "longest";
+  }
+
+  function inPlayArea(latlng) {
+    if (!latlng || state.corners.length < 4) return true;
+    const x = latlng[1];
+    const y = latlng[0];
+    const poly = state.corners;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][1];
+      const yi = poly[i][0];
+      const xj = poly[j][1];
+      const yj = poly[j][0];
+      const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 0.0) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function scoringShots(player, shots) {
+    return (shots || state.shots).filter((s) => {
+      if (s.player !== player || s.missed || s.inPlay === false) return false;
+      return isLongest() ? s.toTee != null : s.toPin != null;
+    });
   }
 
   function fmt(n) {
@@ -506,10 +546,13 @@
         radius: 7,
         color: "#0d1c13",
         weight: 1,
-        fillColor: COLORS[s.player],
+        fillColor: s.inPlay === false ? "#8a8f86" : COLORS[s.player],
         fillOpacity: 0.95
       })
-        .bindTooltip(`${state.names[s.player]} #${idx + 1} · ${fmt(s.toPin)}`, { direction: "top" })
+        .bindTooltip(
+          `${state.names[s.player]} #${idx + 1} · ${s.inPlay === false ? "out of play" : fmt(isLongest() ? s.toTee : s.toPin)}`,
+          { direction: "top" }
+        )
         .addTo(shotLayer);
     });
   }
@@ -519,23 +562,27 @@
   }
 
   function bestOf(player) {
-    const list = state.shots.filter((s) => s.player === player && !s.missed && s.toPin != null);
+    const list = scoringShots(player);
     if (!list.length) return null;
-    return list.reduce((a, b) => (a.toPin < b.toPin ? a : b));
+    return list.reduce((a, b) => {
+      if (isLongest()) return a.toTee > b.toTee ? a : b;
+      return a.toPin < b.toPin ? a : b;
+    });
   }
 
   function avgOf(player, shots) {
-    const list = (shots || state.shots).filter((s) => s.player === player && !s.missed && s.toPin != null);
+    const list = scoringShots(player, shots);
     if (!list.length) return null;
-    return list.reduce((sum, s) => sum + s.toPin, 0) / list.length;
+    const key = isLongest() ? "toTee" : "toPin";
+    return list.reduce((sum, s) => sum + s[key], 0) / list.length;
   }
 
   function avgWinnersOf(shots, names) {
     const avgs = names.map((_, i) => avgOf(i, shots));
     const valid = avgs.filter((v) => v != null);
     if (!valid.length) return { names: [], avgs };
-    const low = Math.min(...valid);
-    return { names: names.filter((_, i) => avgs[i] === low), avgs };
+    const best = isLongest() ? Math.max(...valid) : Math.min(...valid);
+    return { names: names.filter((_, i) => avgs[i] === best), avgs };
   }
 
   function fmtAvg(n) {
@@ -551,8 +598,8 @@
     });
     const valid = Object.values(avgs).filter((v) => v != null);
     if (!valid.length) return { avgs, names: [] };
-    const low = Math.min(...valid);
-    return { avgs, names: state.names.filter((n) => avgs[n] === low) };
+    const best = isLongest() ? Math.max(...valid) : Math.min(...valid);
+    return { avgs, names: state.names.filter((n) => avgs[n] === best) };
   }
 
   function currentPlayer() {
@@ -597,18 +644,22 @@
   function markShot(latlng, missed) {
     if (state.handoffTo != null) return;
     const player = currentPlayer();
-    if (player == null || !state.pin) return;
-    const toPin = missed ? null : yardsBetween(latlng, state.pin);
+    if (player == null) return;
+    if (!isLongest() && !state.pin) return;
+    const toPin = missed || !state.pin ? null : yardsBetween(latlng, state.pin);
     const toTee = missed || !state.tee ? null : yardsBetween(latlng, state.tee);
+    const inPlay = missed ? false : inPlayArea(latlng);
     state.shots.push({
       player,
       latlng: missed ? null : latlng,
       toPin,
       toTee,
       missed,
+      inPlay,
       at: Date.now()
     });
-    state.lastYards = toPin;
+    state.lastYards = isLongest() ? toTee : toPin;
+    state.lastNote = !missed && !inPlay ? "Out of play — does not count" : "";
     redrawShots();
     const next = currentPlayer();
     if (next == null) finishGame();
@@ -618,30 +669,51 @@
     } else renderDock();
   }
 
+  function useMulligan(player) {
+    if (player == null || state.mulliganUsed[player]) return;
+    let idx = -1;
+    state.shots.forEach((s, i) => {
+      if (s.player === player) idx = i;
+    });
+    if (idx < 0) return;
+    state.shots.splice(idx, 1);
+    state.mulliganUsed[player] = true;
+    state.handoffTo = null;
+    state.lastNote = "Mulligan used. Hit again.";
+    redrawShots();
+    renderDock();
+  }
+
   function undoShot() {
     state.shots.pop();
     const last = state.shots[state.shots.length - 1];
-    state.lastYards = last && !last.missed ? last.toPin : null;
+    state.lastYards = last && !last.missed ? (isLongest() ? last.toTee : last.toPin) : null;
+    state.lastNote = "";
     redrawShots();
     renderDock();
   }
 
   function bestLine(player, count) {
     const best = bestOf(player);
-    const bestTxt = best ? `best ${fmt(best.toPin)}` : "no mark";
-    return `${count}/${state.shotsEach} · ${bestTxt}`;
+    const value = best ? fmt(isLongest() ? best.toTee : best.toPin) : null;
+    const bestTxt = value ? `best ${value}` : "no mark";
+    const mull = state.mulliganUsed[player] ? " · mulligan used" : "";
+    return `${count}/${state.shotsEach} · ${bestTxt}${mull}`;
   }
 
   function winnersOf(shots, names) {
     const bests = names.map((_, i) => {
-      const list = shots.filter((s) => s.player === i && !s.missed && s.toPin != null);
+      const list = scoringShots(i, shots);
       if (!list.length) return null;
-      return list.reduce((a, b) => (a.toPin < b.toPin ? a : b)).toPin;
+      return list.reduce((a, b) => {
+        if (isLongest()) return a.toTee > b.toTee ? a : b;
+        return a.toPin < b.toPin ? a : b;
+      })[isLongest() ? "toTee" : "toPin"];
     });
     const valid = bests.filter((v) => v != null);
     if (!valid.length) return { names: [], bests };
-    const low = Math.min(...valid);
-    const winners = names.filter((_, i) => bests[i] === low);
+    const best = isLongest() ? Math.max(...valid) : Math.min(...valid);
+    const winners = names.filter((_, i) => bests[i] === best);
     return { names: winners, bests };
   }
 
@@ -651,8 +723,8 @@
     state.names.forEach((n, i) => {
       if (!state.sessionYards[n]) state.sessionYards[n] = [];
       state.shots
-        .filter((s) => s.player === i && !s.missed && s.toPin != null)
-        .forEach((s) => state.sessionYards[n].push(s.toPin));
+        .filter((s) => s.player === i && !s.missed && s.inPlay !== false && (isLongest() ? s.toTee != null : s.toPin != null))
+        .forEach((s) => state.sessionYards[n].push(isLongest() ? s.toTee : s.toPin));
     });
     state.handoffTo = null;
     state.games.push({
@@ -690,17 +762,19 @@
   function renderScore() {
     const result = winnersOf(state.shots, state.names);
     const avg = avgWinnersOf(state.shots, state.names);
+    const winWord = isLongest() ? "longest carry" : "closest tap";
     let headline = "It's a tie.";
-    if (result.names.length === 1) headline = `${result.names[0]} closest tap`;
-    else if (result.names.length > 1) headline = `Closest tap tie: ${result.names.join(" & ")}`;
+    if (result.names.length === 1) headline = `${result.names[0]} ${winWord}`;
+    else if (result.names.length > 1) headline = `${winWord} tie: ${result.names.join(" & ")}`;
     let avgLine = "No averages yet.";
     if (avg.names.length === 1) avgLine = `${avg.names[0]}`;
     else if (avg.names.length > 1) avgLine = avg.names.join(" & ");
     const sameHonor =
       result.names.length === 1 && avg.names.length === 1 && result.names[0] === avg.names[0];
+    const honorLabel = isLongest() ? "longest carry" : "closest to the pin";
     const honorHtml = sameHonor
-      ? `<div class="honor champ"><div class="honor-label">Winner · closest and best average</div><h2>${headline}</h2></div>`
-      : `<div class="honor champ"><div class="honor-label">Winner · closest to the pin</div><h2>${headline}</h2></div>
+      ? `<div class="honor champ"><div class="honor-label">Winner · ${honorLabel} and best average</div><h2>${headline}</h2></div>`
+      : `<div class="honor champ"><div class="honor-label">Winner · ${honorLabel}</div><h2>${headline}</h2></div>
          <div class="honor runner"><div class="honor-label">Runner-up · best average</div><h2>${avgLine}</h2></div>`;
 
     const { tally, ties } = sessionWins();
@@ -720,7 +794,7 @@
         const mean = avgOf(i);
         return `<div class="player p${i + 1}">
           <div class="name">${n}</div>
-          <div class="meta">Best ${best ? fmt(best.toPin) : "—"} · ${fmtAvg(mean)} · ${tally[n] || 0} wins</div>
+          <div class="meta">Best ${best ? fmt(isLongest() ? best.toTee : best.toPin) : "—"} · ${fmtAvg(mean)} · ${tally[n] || 0} wins</div>
         </div>`;
       })
       .join("");
@@ -742,9 +816,9 @@
           <span class="dot" style="background:${COLORS[s.player]}"></span>
           <div>
             <div>${state.names[s.player]} · shot ${i + 1}</div>
-            <div class="tiny">tap mark${carry}</div>
+            <div class="tiny">${s.inPlay === false ? "out of play — does not count" : `tap mark${carry}`}</div>
           </div>
-          <strong>${fmt(s.toPin)}</strong>
+          <strong>${s.inPlay === false ? "—" : fmt(isLongest() ? s.toTee : s.toPin)}</strong>
         </div>`;
       })
       .join("");
@@ -765,7 +839,7 @@
       .join("");
 
     els.score.innerHTML = `
-      <div class="tiny">Closest to the pin · v${VERSION} · round ${state.games.length} of ${state.roundsPlanned}${state.placeName ? ` · ${state.placeName}` : ""}</div>
+      <div class="tiny">${selectedGame().label} · v${VERSION} · round ${state.games.length} of ${state.roundsPlanned}${state.placeName ? ` · ${state.placeName}` : ""}</div>
       <div class="winner">
         <div class="tiny">This game · ${selectedGame().label}</div>
         ${honorHtml}
@@ -776,7 +850,7 @@
         <h2 style="margin:4px 0 6px">${sessionLine}</h2>
         <p class="lede" style="margin:0">${state.games.length} game${state.games.length === 1 ? "" : "s"}${ties ? ` · ${ties} tie${ties === 1 ? "" : "s"}` : ""}</p>
       </div>
-      <p class="lede">Distance is from the spotter tap to the pin. Treat it as a game mark, not a launch monitor.</p>
+      <p class="lede">${isLongest() ? "Carry counts only inside the outline. One mulligan per player each round." : "Distance is from the spotter tap to the pin. Treat it as a game mark, not a launch monitor."}</p>
       <div class="tiny">This game</div>
       <div class="list">${shotsHtml || "<p class='lede'>No shots recorded.</p>"}</div>
       <div class="tiny">All games this visit</div>
@@ -1012,7 +1086,9 @@
   function replaySame() {
     state.shots = [];
     state.lastYards = null;
+    state.lastNote = "";
     state.handoffTo = null;
+    state.mulliganUsed = [false, false, false, false];
     state.phase = "play";
     els.score.classList.add("hidden");
     setChip("Play");
@@ -1063,7 +1139,7 @@
     ];
     map.setView(INDIAN_TREE.center, 17);
     applyRangeFrame();
-    placePin(INDIAN_TREE.pins[150], true);
+    if (!isLongest()) placePin(INDIAN_TREE.pins[150], true);
     saveGeom();
     setPlaceLabel("Spotter Range");
     state.phase = "aim";
@@ -1169,8 +1245,9 @@
     state.game = gameEl && gameEl.value ? gameEl.value : "closest";
     state.shots = [];
     state.lastYards = null;
-    state.gpsNote = "";
+    state.lastNote = "";
     state.handoffTo = null;
+    state.mulliganUsed = [false, false, false, false];
     state.usingReference = false;
     state.placeName = "";
     setPlaceLabel("Any driving range");
@@ -1190,7 +1267,7 @@
         state.teeLocked = true;
       }
       if (saved.pin) placePin(saved.pin, true);
-      if (state.tee && state.pin) {
+      if (state.tee && (state.pin || isLongest())) {
         enterPlay();
         return;
       }
@@ -1200,7 +1277,8 @@
   }
 
   function enterPlay() {
-    if (!state.tee || !state.pin) return;
+    if (!state.tee) return;
+    if (!isLongest() && !state.pin) return;
     state.phase = "play";
     setChip("Play");
     saveGeom();
@@ -1209,7 +1287,7 @@
     if (state.corners.length === 4) {
       drawRangeGuides();
       spinTeeToBottom();
-    } else map.fitBounds(L.latLngBounds([state.tee, state.pin]).pad(0.6));
+    } else if (state.pin) map.fitBounds(L.latLngBounds([state.tee, state.pin]).pad(0.6));
     setTimeout(() => map.invalidateSize(), 60);
   }
 
@@ -1221,7 +1299,7 @@
 
     if (state.phase === "aim") {
       els.dock.innerHTML = `
-        <div class="tiny">Step 1 of 3 · Aim the phone</div>
+        <div class="tiny">Step 1 of ${isLongest() ? "2" : "3"} · Aim the phone</div>
         <p style="margin:4px 0 10px">Turn the map until the tee pads are at the bottom of the phone.</p>
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1.4fr">
           <button class="btn secondary" id="turnLeft">↺ 15°</button>
@@ -1280,11 +1358,11 @@
 
     if (state.phase === "tee" || state.phase === "calibrate") {
       els.dock.innerHTML = `
-        <div class="tiny">Step 2 of 3 · Tee</div>
-        <p style="margin:4px 0 10px">Drag the green tee onto your bay, or tap the pad you are standing on.</p>
+        <div class="tiny">Step 2 of ${isLongest() ? "2" : "3"} · Tee</div>
+        <p style="margin:4px 0 10px">${isLongest() ? "Drag the green tee onto your bay. The outline is the area of play — no pin." : "Drag the green tee onto your bay, or tap the pad you are standing on."}</p>
         <div class="btn-row" style="grid-template-columns:1fr 1.4fr">
           <button class="btn secondary" id="backAim">Back</button>
-          <button class="btn" id="teeNext" ${state.tee ? "" : "disabled"}>Tee is here</button>
+          <button class="btn" id="teeNext" ${state.tee ? "" : "disabled"}>${isLongest() ? "Start game" : "Tee is here"}</button>
         </div>
       `;
       document.getElementById("backAim").onclick = () => {
@@ -1295,6 +1373,10 @@
       document.getElementById("teeNext").onclick = () => {
         if (!state.tee) return;
         state.teeLocked = true;
+        if (isLongest()) {
+          enterPlay();
+          return;
+        }
         if (!state.pin && state.usingReference) placePin(INDIAN_TREE.pins[150], true);
         state.phase = "pin";
         setChip("Pin");
@@ -1326,21 +1408,36 @@
       if (state.handoffTo != null) {
         const nxt = state.handoffTo;
         const done = state.names[nxt - 1] || "Last player";
+        const donePlayer = nxt - 1;
+        const canMulligan = donePlayer >= 0 && !state.mulliganUsed[donePlayer] && state.shots.some((s) => s.player === donePlayer);
         els.dock.innerHTML = `
           <div class="tiny">Round ${state.games.length + 1} of ${state.roundsPlanned} · ${state.placeName || "Spotter"}</div>
           <p style="margin:4px 0 10px">${done} is done. Hand the phone over, then start ${state.names[nxt]}.</p>
           <button class="btn wide" id="handoffBtn">Start ${state.names[nxt]}</button>
+          <button class="btn secondary wide" id="mulliganBtn" style="margin-top:8px" ${canMulligan ? "" : "disabled"}>Mulligan for ${done}</button>
         `;
         document.getElementById("handoffBtn").onclick = () => {
           state.handoffTo = null;
           renderDock();
         };
+        document.getElementById("mulliganBtn").onclick = () => useMulligan(donePlayer);
         return;
       }
       const player = currentPlayer();
       const c = counts();
       const last = state.shots[state.shots.length - 1];
-      const lastTxt = last ? (last.missed ? "missed" : fmt(last.toPin)) : "—";
+      const lastTxt = last
+        ? last.missed
+          ? "missed"
+          : last.inPlay === false
+            ? "out"
+            : fmt(isLongest() ? last.toTee : last.toPin)
+        : "—";
+      const mulliganPlayer = player != null ? player : null;
+      const canMulligan =
+        mulliganPlayer != null &&
+        !state.mulliganUsed[mulliganPlayer] &&
+        state.shots.some((s) => s.player === mulliganPlayer);
       const cards = state.names
         .map((n, i) => {
           return `<div class="player p${i + 1} ${player === i ? "active" : ""}">
@@ -1362,11 +1459,12 @@
             }</div>
           </div>
           <div style="text-align:right">
-            <div class="tiny">Last to pin</div>
+            <div class="tiny">${isLongest() ? "Last carry" : "Last to pin"}</div>
             <div class="big" style="font-size:18px">${lastTxt}</div>
           </div>
         </div>
         <div class="scoreline" style="margin-bottom:8px">${cards}</div>
+        ${state.lastNote ? `<p class="lede" style="margin:0 0 8px">${state.lastNote}</p>` : ""}
         <div class="btn-row" style="grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr">
           <button class="btn ghost" id="undoBtn" ${state.shots.length ? "" : "disabled"}>Undo</button>
           <button class="btn secondary" id="missBtn" ${player == null ? "disabled" : ""}>Missed</button>
@@ -1375,9 +1473,11 @@
           <button class="btn secondary" id="turnRight">↻</button>
           <button class="btn danger" id="endBtn">End</button>
         </div>
+        <button class="btn secondary wide" id="mulliganBtn" style="margin-top:8px" ${canMulligan ? "" : "disabled"}>Mulligan · 1 per player</button>
       `;
       document.getElementById("undoBtn").onclick = undoShot;
       document.getElementById("missBtn").onclick = () => markShot(null, true);
+      document.getElementById("mulliganBtn").onclick = () => useMulligan(player);
       document.getElementById("movePin").onclick = () => {
         state.phase = "pin";
         setChip("Pin");
