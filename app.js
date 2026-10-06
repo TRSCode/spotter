@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.9.1";
+  const VERSION = "0.9.2";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -393,7 +393,21 @@
     }
     drawRangeGuides();
     spinTeeToBottom();
-    setTimeout(spinTeeToBottom, 120);
+    setTimeout(() => {
+      spinTeeToBottom();
+      if (state.usingReference || teeLineAtBottom()) return;
+      state.lockedHeading = (state.rangeHeading + 180) % 360;
+      state.rangeHeading = state.lockedHeading;
+      spinTeeToBottom();
+    }, 140);
+  }
+
+  function teeLineAtBottom() {
+    if (!map || state.corners.length < 4) return true;
+    const [teeL, teeR, farR, farL] = state.corners;
+    const tee = map.latLngToContainerPoint(L.latLng(midLatLng(teeL, teeR)));
+    const far = map.latLngToContainerPoint(L.latLng(midLatLng(farL, farR)));
+    return tee.y >= far.y;
   }
 
   function clearCssSpin() {
@@ -562,7 +576,10 @@
       if (state.corners.length < 4) {
         state.corners.push(latlng);
         drawRangeGuides();
-        if (state.corners.length === 4) applyRangeFrame();
+        if (state.corners.length === 4) {
+          state.gpsNote = "";
+          applyRangeFrame();
+        }
         renderDock();
       }
       return;
@@ -1234,7 +1251,7 @@
       ];
       els.dock.innerHTML = `
         <div class="tiny">Outline · corner ${Math.min(n + 1, 4)} of 4</div>
-        <p style="margin:4px 0 10px">${state.gpsNote || (n < 4 ? prompts[n] : "Box set. Next, confirm your tee.")}</p>
+        <p style="margin:4px 0 10px">${n < 4 ? (state.gpsNote || prompts[n]) : "Box set. Tee line is at the bottom. Next, confirm your tee."}</p>
         <div class="btn-row" style="grid-template-columns:1fr 1fr">
           <button class="btn ghost" id="undoCorner" ${n ? "" : "disabled"}>Undo</button>
           <button class="btn secondary" id="hereBtn">Find me</button>
@@ -1245,6 +1262,7 @@
       document.getElementById("undoCorner").onclick = () => {
         state.corners.pop();
         state.gpsNote = "";
+        state.lockedHeading = null;
         drawRangeGuides();
         renderDock();
       };
