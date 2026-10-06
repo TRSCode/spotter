@@ -32,7 +32,7 @@
   </div>
 
   <section class="screen" id="setupScreen">
-    <div class="tiny">Spotter v0.10.1</div>
+    <div class="tiny">Spotter v0.11.6</div>
     <h2>Range games</h2>
 
     <div class="field field-game">
@@ -55,7 +55,8 @@
       <div class="field">
         <label for="playerCount">Players</label>
         <select id="playerCount">
-          <option value="2">2</option>
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
           <option value="3">3</option>
           <option value="4">4</option>
         </select>
@@ -85,7 +86,7 @@
 
     <div class="row" style="margin-top:10px">
       <div class="field"><label for="name1">Player 1</label><input id="name1" type="text" value="" placeholder="Player 1" autocomplete="off" /></div>
-      <div class="field"><label for="name2">Player 2</label><input id="name2" type="text" value="" placeholder="Player 2" autocomplete="off" /></div>
+      <div class="field" id="wrap2"><label for="name2">Player 2</label><input id="name2" type="text" value="" placeholder="Player 2" autocomplete="off" /></div>
     </div>
     <div class="row" id="extraNames" style="margin-top:10px">
       <div class="field" id="wrap3"><label for="name3">Player 3</label><input id="name3" type="text" value="" placeholder="Player 3" autocomplete="off" /></div>
@@ -100,10 +101,15 @@
     <div style="margin-top:16px">
       <button class="btn wide" id="startBtn">Set up the range</button>
       <div style="height:8px"></div>
+      <button class="btn course wide" id="cardBtn">Score a golf round</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost wide" id="seeCardBtn">See scorecard</button>
+      <div style="height:8px"></div>
       <button class="btn ghost wide" id="reloadBtn">Reload latest version</button>
     </div>
   </section>
 
+  <section class="screen hidden" id="cardScreen"></section>
   <section class="screen hidden" id="scoreScreen"></section>
 
   <script src="vendor/leaflet.js"></script>

@@ -1,5 +1,5 @@
 (() => {
-  const VERSION = "0.10.1";
+  const VERSION = "0.11.6";
   const YARDS_PER_METER = 1.0936133;
   const STORE = "spotter-v041";
   const COLORS = ["#5ec8ff", "#e6c36a", "#d08cff", "#7ed38a"];
@@ -81,6 +81,7 @@
     score: document.getElementById("scoreScreen"),
     modeChip: document.getElementById("modeChip"),
     playerCount: document.getElementById("playerCount"),
+    wrap2: document.getElementById("wrap2"),
     wrap3: document.getElementById("wrap3"),
     wrap4: document.getElementById("wrap4"),
     gameType: document.getElementById("gameType"),
@@ -204,6 +205,7 @@
 
   function syncNameFields() {
     const n = Number(els.playerCount.value);
+    if (els.wrap2) els.wrap2.style.display = n >= 2 ? "" : "none";
     els.wrap3.style.display = n >= 3 ? "" : "none";
     els.wrap4.style.display = n >= 4 ? "" : "none";
   }
@@ -1228,7 +1230,7 @@
 
   function startSession() {
     savePrefs();
-    const n = Math.max(2, Math.min(4, Number(els.playerCount.value) || 2));
+    const n = Math.max(1, Math.min(4, Number(els.playerCount.value) || 2));
     const raw = [
       document.getElementById("name1").value.trim() || "Player 1",
       document.getElementById("name2").value.trim() || "Player 2",
@@ -1501,6 +1503,368 @@
   els.playerCount.addEventListener("change", syncNameFields);
   if (els.gameType) els.gameType.addEventListener("change", renderGameSteps);
   document.getElementById("startBtn").onclick = startSession;
+  document.getElementById("cardBtn").onclick = openCard;
+  document.getElementById("seeCardBtn").onclick = showSavedCard;
+
+  const cardState = {
+    course: "",
+    side: "front",
+    player: 0,
+    names: ["Player 1", "Player 2"],
+    pars: Array(18).fill(4),
+    scores: [],
+    saved: false
+  };
+
+  function cardNames() {
+    const n = Math.max(1, Math.min(4, Number(els.playerCount.value) || 2));
+    return [1, 2, 3, 4].slice(0, n).map((i) => {
+      const el = document.getElementById("name" + i);
+      return (el && el.value.trim()) || "Player " + i;
+    });
+  }
+
+  function loadCard() {
+    try {
+      const raw = JSON.parse(localStorage.getItem("spotter-card") || "{}");
+      cardState.course = raw.course || "";
+      cardState.side = raw.side || "front";
+      cardState.pars = Array.isArray(raw.pars) && raw.pars.length === 18 ? raw.pars : Array(18).fill(4);
+      cardState.names = raw.names && raw.names.length ? raw.names : cardNames();
+      cardState.scores = raw.scores && raw.scores.length === cardState.names.length
+        ? raw.scores
+        : cardState.names.map(() => Array(18).fill(null));
+      cardState.saved = !!raw.savedAt;
+    } catch (_) {
+      cardState.names = cardNames();
+      cardState.scores = cardState.names.map(() => Array(18).fill(null));
+    }
+  }
+
+  function saveCard(done) {
+    localStorage.setItem("spotter-card", JSON.stringify({
+      course: cardState.course,
+      side: cardState.side,
+      pars: cardState.pars,
+      names: cardState.names,
+      scores: cardState.scores,
+      savedAt: done ? Date.now() : null
+    }));
+  }
+
+  function holeRange() {
+    if (cardState.side === "back") return [9, 18];
+    if (cardState.side === "all") return [0, 18];
+    return [0, 9];
+  }
+
+  function cardTotals(player) {
+    const [a, b] = holeRange();
+    let strokes = 0;
+    let par = 0;
+    let played = 0;
+    for (let i = a; i < b; i += 1) {
+      const s = cardState.scores[player][i];
+      if (s == null) continue;
+      strokes += s;
+      par += cardState.pars[i];
+      played += 1;
+    }
+    return { strokes, par, played, vs: strokes - par };
+  }
+
+  function fmtVs(n) {
+    if (!n) return "E";
+    return n > 0 ? `+${n}` : String(n);
+  }
+
+  function openCard() {
+    loadCard();
+    const freshNames = cardNames();
+    if (freshNames.join("|") !== cardState.names.join("|")) {
+      cardState.names = freshNames;
+      cardState.scores = freshNames.map(() => Array(18).fill(null));
+    }
+    cardState.player = 0;
+    cardState.saved = false;
+    document.getElementById("setupScreen").classList.add("hidden");
+    document.getElementById("cardScreen").classList.remove("hidden");
+    setChip("Card");
+    renderCard();
+  }
+
+  function renderCard() {
+    const screen = document.getElementById("cardScreen");
+    const [a, b] = holeRange();
+    const p = cardState.player;
+    const tot = cardTotals(p);
+    const chips = cardState.names.map((n, i) =>
+      `<button class="btn secondary ${i === p ? "active" : ""}" data-player="${i}">${n}</button>`
+    ).join("");
+    const holes = [];
+    for (let i = a; i < b; i += 1) {
+      const score = cardState.scores[p][i];
+      holes.push(`<div class="hole">
+        <div class="hole-no">${i + 1}</div>
+        <div class="par-step">
+          <span class="tiny">Par</span>
+          <button class="step-btn" data-par="${i}" data-d="-1">−</button>
+          <span>${cardState.pars[i]}</span>
+          <button class="step-btn" data-par="${i}" data-d="1">+</button>
+        </div>
+        <div class="score-step">
+          <button class="step-btn" data-score="${i}" data-d="-1">−</button>
+          <span class="score-val">${score == null ? "—" : score}</span>
+          <button class="step-btn" data-score="${i}" data-d="1">+</button>
+        </div>
+      </div>`);
+    }
+    screen.innerHTML = `
+      <div class="tiny">Score a round</div>
+      <h2 style="margin-bottom:8px">Scorecard</h2>
+      <label for="courseName">Course</label>
+      <input id="courseName" type="text" placeholder="Course name" />
+      <div class="btn-row three" style="margin-top:10px">
+        <button class="btn ${cardState.side === "front" ? "" : "secondary"}" data-side="front">Front 9</button>
+        <button class="btn ${cardState.side === "back" ? "" : "secondary"}" data-side="back">Back 9</button>
+        <button class="btn ${cardState.side === "all" ? "" : "secondary"}" data-side="all">18</button>
+      </div>
+      <div class="chips">${chips}</div>
+      ${holes.join("")}
+      <div class="card-total">
+        <div class="tiny">${cardState.names[p]} · ${tot.played} holes scored</div>
+        <div class="big">${tot.played ? fmtVs(tot.vs) : "—"} <span style="font-size:14px;color:var(--muted)">${tot.played ? tot.strokes + " strokes" : ""}</span></div>
+      </div>
+      <button class="btn wide" id="cardShare" style="margin-top:12px">Share results card</button>
+      <div style="height:8px"></div>
+      <button class="btn danger wide" id="cardClear">Clear scores</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost wide" id="cardBack">Back to setup</button>
+      <img class="share-card" id="cardPreview" alt="Scorecard" style="margin-top:12px" />
+    `;
+    const courseEl = screen.querySelector("#courseName");
+    courseEl.value = cardState.course;
+    courseEl.oninput = (e) => {
+      cardState.course = e.target.value;
+      saveCard(false);
+    };
+    screen.querySelectorAll("[data-side]").forEach((btn) => {
+      btn.onclick = () => {
+        cardState.side = btn.dataset.side;
+        saveCard(false);
+        renderCard();
+      };
+    });
+    screen.querySelectorAll("[data-player]").forEach((btn) => {
+      btn.onclick = () => {
+        cardState.player = Number(btn.dataset.player);
+        renderCard();
+      };
+    });
+    screen.querySelectorAll("[data-par]").forEach((btn) => {
+      btn.onclick = () => {
+        const i = Number(btn.dataset.par);
+        cardState.pars[i] = Math.max(3, Math.min(6, cardState.pars[i] + Number(btn.dataset.d)));
+        saveCard(false);
+        renderCard();
+      };
+    });
+    screen.querySelectorAll("[data-score]").forEach((btn) => {
+      btn.onclick = () => {
+        const i = Number(btn.dataset.score);
+        const cur = cardState.scores[p][i];
+        const d = Number(btn.dataset.d);
+        if (cur == null) cardState.scores[p][i] = d > 0 ? cardState.pars[i] : null;
+        else cardState.scores[p][i] = Math.max(1, cur + d);
+        saveCard(false);
+        renderCard();
+      };
+    });
+    screen.querySelector("#cardShare").onclick = shareCard;
+    screen.querySelector("#cardClear").onclick = clearCardScores;
+    paintCardShare().then((url) => {
+      const img = document.getElementById("cardPreview");
+      if (img && url) img.src = url;
+    });
+    screen.querySelector("#cardBack").onclick = () => {
+      saveCard(cardState.saved);
+      screen.classList.add("hidden");
+      document.getElementById("setupScreen").classList.remove("hidden");
+      setChip("Setup");
+    };
+  }
+
+  function clearCardScores() {
+    cardState.scores = cardState.names.map(() => Array(18).fill(null));
+    cardState.saved = false;
+    saveCard(false);
+    if (document.getElementById("setupScreen").classList.contains("hidden")) {
+      if (document.getElementById("cardPreview") && document.getElementById("courseName")) renderCard();
+      else showSavedCard();
+    }
+  }
+
+  function showSavedCard() {
+    loadCard();
+    const screen = document.getElementById("cardScreen");
+    document.getElementById("setupScreen").classList.add("hidden");
+    screen.classList.remove("hidden");
+    setChip("Card");
+    const [a, b] = holeRange();
+    const rows = cardState.names.map((n, i) => {
+      const t = cardTotals(i);
+      const holes = cardState.scores[i].slice(a, b).map((s) => (s == null ? "·" : s)).join(" ");
+      return `<div class="shot"><span class="dot" style="background:${COLORS[i]}"></span><div><div>${n}</div><div class="tiny">${holes}</div></div><strong>${t.played ? fmtVs(t.vs) : "—"}</strong></div>`;
+    }).join("");
+    screen.innerHTML = `
+      <div class="tiny">Saved scorecard</div>
+      <h2>${cardState.course || "Golf round"}</h2>
+      <p class="lede">${cardState.side === "back" ? "Back 9" : cardState.side === "all" ? "18 holes" : "Front 9"}</p>
+      <div class="list">${rows || "<p class='lede'>No scorecard yet. Score a golf round first.</p>"}</div>
+      <img class="share-card" id="cardPreview" alt="Scorecard" />
+      <button class="btn wide" id="cardShare">Share results card</button>
+      <div style="height:8px"></div>
+      <button class="btn danger wide" id="cardClear">Clear scores</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost wide" id="cardBack">Back to setup</button>
+    `;
+    paintCardShare().then((url) => {
+      const img = document.getElementById("cardPreview");
+      if (img && url) img.src = url;
+    });
+    screen.querySelector("#cardShare").onclick = shareCard;
+    screen.querySelector("#cardClear").onclick = clearCardScores;
+    screen.querySelector("#cardBack").onclick = () => {
+      screen.classList.add("hidden");
+      document.getElementById("setupScreen").classList.remove("hidden");
+      setChip("Setup");
+    };
+  }
+
+  function paintCardShare() {
+    const w = 1080;
+    const h = 1350;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#e7f0e4";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#143021";
+    ctx.fillRect(0, 0, w, 168);
+    ctx.fillStyle = "#e6c36a";
+    ctx.font = "700 28px Trebuchet MS, sans-serif";
+    ctx.fillText("SPOTTER SCORECARD", 56, 62);
+    ctx.fillStyle = "#f4f1e8";
+    ctx.font = "700 46px Trebuchet MS, sans-serif";
+    wrapText(ctx, cardState.course || "Golf round", 56, 118, 700, 48);
+    ctx.font = "28px Trebuchet MS, sans-serif";
+    ctx.fillStyle = "#b7c4b4";
+    const side = cardState.side === "back" ? "Back 9" : cardState.side === "all" ? "18 holes" : "Front 9";
+    ctx.fillText(side, 780, 118);
+
+    const blocks = cardState.side === "all" ? [[0, 9, "Out"], [9, 18, "In"]] : [holeRange().concat([cardState.side === "back" ? "In" : "Out"])];
+    let y = 210;
+    blocks.forEach(([start, end, label]) => {
+      y = drawCardBlock(ctx, start, end, label, 40, y);
+      y += 28;
+    });
+    if (cardState.side === "all") {
+      const barH = 50 + cardState.names.length * 40;
+      ctx.fillStyle = "#143021";
+      ctx.fillRect(40, y, 1000, barH);
+      ctx.fillStyle = "#e6c36a";
+      ctx.font = "700 24px Trebuchet MS, sans-serif";
+      ctx.fillText("Total", 56, y + 34);
+      cardState.names.forEach((n, i) => {
+        const t = cardTotals(i);
+        ctx.fillStyle = "#f4f1e8";
+        ctx.font = "700 26px Trebuchet MS, sans-serif";
+        ctx.fillText(n, 220, y + 36 + i * 40);
+        ctx.fillStyle = "#e6c36a";
+        ctx.fillText(t.played ? `${t.strokes}    ${fmtVs(t.vs)}` : "—", 520, y + 36 + i * 40);
+      });
+    }
+    return new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        state.shareBlob = blob;
+        resolve(blob ? URL.createObjectURL(blob) : "");
+      }, "image/png");
+    });
+  }
+
+  function drawCardBlock(ctx, start, end, totalLabel, x, y) {
+    const holes = [];
+    for (let i = start; i < end; i += 1) holes.push(i);
+    const labelW = 170;
+    const cell = 78;
+    const rowH = 54;
+    const rows = 2 + cardState.names.length;
+    const width = labelW + holes.length * cell + cell;
+    ctx.fillStyle = "#143021";
+    ctx.fillRect(x, y, width, rowH);
+    ctx.fillStyle = "#f4f1e8";
+    ctx.font = "700 22px Trebuchet MS, sans-serif";
+    ctx.fillText("Hole", x + 16, y + 34);
+    holes.forEach((hole, i) => {
+      ctx.fillText(String(hole + 1), x + labelW + i * cell + 24, y + 34);
+    });
+    ctx.fillText(totalLabel, x + labelW + holes.length * cell + 16, y + 34);
+    const body = [
+      ["Par", holes.map((h) => String(cardState.pars[h])), String(holes.reduce((s, h) => s + cardState.pars[h], 0))],
+      ...cardState.names.map((n, pi) => {
+        const scores = holes.map((h) => (cardState.scores[pi][h] == null ? "" : String(cardState.scores[pi][h])));
+        const played = holes.filter((h) => cardState.scores[pi][h] != null);
+        const strokes = played.reduce((s, h) => s + cardState.scores[pi][h], 0);
+        return [n, scores, played.length ? String(strokes) : ""];
+      })
+    ];
+    body.forEach((row, r) => {
+      const ry = y + rowH * (r + 1);
+      ctx.fillStyle = r === 0 ? "#d7e4d4" : r % 2 ? "#f7fbf6" : "#e7f0e4";
+      ctx.fillRect(x, ry, width, rowH);
+      ctx.strokeStyle = "#143021";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, ry, width, rowH);
+      ctx.fillStyle = "#143021";
+      ctx.font = "700 22px Trebuchet MS, sans-serif";
+      ctx.fillText(row[0].slice(0, 10), x + 16, ry + 34);
+      row[1].forEach((val, i) => {
+        ctx.font = "28px Trebuchet MS, sans-serif";
+        ctx.fillText(val, x + labelW + i * cell + 24, ry + 36);
+      });
+      ctx.font = "700 24px Trebuchet MS, sans-serif";
+      ctx.fillText(row[2], x + labelW + holes.length * cell + 16, ry + 36);
+    });
+    return y + rowH * rows;
+  }
+
+  async function shareCard() {
+    await paintCardShare();
+    const text = ["Spotter scorecard", cardState.course || "Golf round", ...cardState.names.map((n, i) => {
+      const t = cardTotals(i);
+      return `${n}: ${t.played ? fmtVs(t.vs) + " · " + t.strokes + " strokes" : "no scores"}`;
+    })].join("\n");
+    const file = state.shareBlob ? new File([state.shareBlob], "spotter-scorecard.png", { type: "image/png" }) : null;
+    try {
+      if (file && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ title: "Spotter scorecard", text, files: [file] });
+        return;
+      }
+      if (navigator.share) {
+        await navigator.share({ title: "Spotter scorecard", text });
+        return;
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    const url = URL.createObjectURL(state.shareBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "spotter-scorecard.png";
+    a.click();
+  }
+
   const reloadBtn = document.getElementById("reloadBtn");
   if (reloadBtn) reloadBtn.onclick = forceLatest;
 

@@ -202,7 +202,11 @@ input[type="text"], input[type="number"], select {
 
 .btn.danger { background: var(--danger); }
 
-.btn.wide { width: 100%; }
+.btn.course {
+  background: #1b3324;
+  color: #e6c36a;
+  border: 2px solid #e6c36a;
+}
 
 .btn-row {
   display: grid;
@@ -251,6 +255,39 @@ input[type="text"], input[type="number"], select {
 .tiny { font-size: 11px; color: var(--muted); }
 
 .hidden { display: none !important; }
+
+.hole {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.hole-no { font-weight: 800; font-size: 16px; }
+.par-step, .score-step { display: flex; align-items: center; gap: 6px; }
+.step-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #102016;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 700;
+}
+.score-val { min-width: 36px; text-align: center; font-weight: 800; font-size: 18px; }
+.card-total {
+  position: sticky;
+  bottom: 0;
+  margin-top: 12px;
+  padding: 12px;
+  background: #1b3324;
+  border: 1px solid rgba(230, 195, 106, 0.35);
+  border-radius: 14px;
+}
+.chips { display: flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
+.chips button.active { outline: 2px solid var(--ok); }
 
 .screen {
   position: fixed;
